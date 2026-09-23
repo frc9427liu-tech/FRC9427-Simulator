@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>LEO 模擬器</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0f1419">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="LEO 模擬器">
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a2029; --panel2: #232b36; --line: #334050;
+    --text: #e6edf3; --dim: #8b98a5; --accent: #4da3ff;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    --a: #3fb950; --b: #f85149; --x: #4da3ff; --y: #e3b341;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", system-ui, sans-serif; }
+  body { padding: 12px 16px 40px; user-select: none; -webkit-user-select: none; }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- 頂列 ---------- */
+  .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .top h1 { font-size: 20px; margin: 0 8px 0 0; white-space: nowrap; }
+  .top .toggle { padding: 7px 10px; font-size: 13px; }
+  .top .modes button { padding: 8px 12px; }
+  .conn { display: flex; gap: 12px; font-size: 13px; color: var(--dim); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); margin-right: 4px; }
+  .dot.on { background: var(--ok); }
+  .spacer { flex: 1; }
+  .modes { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .modes button { background: var(--panel); border: 0; padding: 9px 14px; cursor: pointer; }
+  .modes button.sel { background: var(--accent); color: #fff; }
+  .enable { border: 0; border-radius: 10px; padding: 10px 22px; font-weight: 700; cursor: pointer;
+    background: var(--ok); color: #fff; min-width: 110px; }
+  .enable.on { background: var(--bad); }
+  .enable:disabled { opacity: .4; cursor: not-allowed; }
+  .toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  .toggle input { width: 18px; height: 18px; }
+
+  .hint { font-size: 13px; color: var(--dim); margin: -4px 0 12px; }
+  .hint b { color: var(--text); }
+
+  /* ---------- 控制器 ---------- */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+  .pads { display: grid; gap: 14px; }
+  .screenCol { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #0b0f14; }
+  .stage > canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+  .stage:fullscreen { border-radius: 0; aspect-ratio: auto; }
+  .hud { position: absolute; left: 10px; top: 10px; pointer-events: none; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
+  .hud div { background: rgba(13,17,23,.78); border-radius: 8px; padding: 5px 10px; font-size: 14px; font-weight: 700; width: fit-content; }
+  .hud .warn { color: #ff7b72; animation: blink .8s steps(2) infinite; }
+  @keyframes blink { 50% { color: #ffa198; } }
+  .rsl { position: absolute; right: 12px; top: 12px; width: 14px; height: 14px; border-radius: 50%; background: #3a2a10; z-index: 2; }
+  .rsl.on { background: #ff9f1a; box-shadow: 0 0 14px #ff9f1a; }
+  .mapdlg { width: min(980px, 96vw); max-height: 90vh; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .mapdlg::backdrop { background: rgba(0,0,0,.55); }
+  .mapdlg .mt { font-size: 18px; font-weight: 800; margin-bottom: 8px; }
+  .mapdlg .mp { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: 6px; }
+  .mapdlg .mnote { font-size: 13px; color: var(--dim); background: var(--panel2); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+  .mtab { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+  .mtab th { text-align: left; color: var(--dim); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .mtab td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .mtab select { width: 100%; max-width: 420px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+  .mtab .mh { font-size: 11px; color: var(--dim); margin-top: 2px; max-width: 260px; }
+  .mtab .live { font: 600 14px Consolas, monospace; min-width: 70px; text-align: right; }
+  .pps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .pp { font-size: 12px; color: var(--dim); display: inline-flex; align-items: center; gap: 4px; }
+  .pp input[type=number] { width: 70px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
+  .msec { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+  .mapdlg .acts { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .mapdlg .acts button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); cursor: pointer; }
+  .mapdlg .acts .go { background: var(--accent); color: #fff; border: 0; }
+  .kbhelp { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; font-size: 13px; }
+  .kbhelp summary { cursor: pointer; font-weight: 700; }
+  .kbgrid { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin-top: 8px; align-items: center; }
+  .kbgrid kbd { display: inline-block; min-width: 22px; text-align: center; padding: 1px 6px; margin-right: 3px; border-radius: 5px;
+    background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 3px; font: 600 12px/1.5 Consolas, monospace; }
+  #demoBtn { background: linear-gradient(135deg, #8957e5, #2f81f7); color: #fff; border: 0; font-weight: 700; }
+  #demoBtn.on { background: #da3633; animation: blink .8s steps(2) infinite; }
+  .demo-tag { display: none; position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 2; pointer-events: none;
+    background: rgba(137,87,229,.88); color: #fff; font-weight: 800; font-size: 15px; padding: 6px 16px; border-radius: 999px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.4); }
+  .pop { position: absolute; transform: translate(-50%, -50%); font-weight: 800; font-size: 20px; pointer-events: none; z-index: 2; text-shadow: 0 2px 6px #000; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: var(--panel2); border: 0; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+  .seg button.sel { background: var(--accent); color: #fff; }
+  .screen { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px; }
+  .screen .bar2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 4px 8px; font-size: 14px; }
+  .screen .bar2 b { font-size: 16px; }
+  .screen .bar2 > button { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+  .status { padding: 2px 10px; border-radius: 8px; font-weight: 700; font-size: 13px; background: #0005; color: var(--dim); }
+  .status.on { background: var(--ok); color: #fff; }
+
+  .legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+  .mech { background: var(--panel2); border-radius: 10px; padding: 6px 10px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .mech .led { width: 10px; height: 10px; border-radius: 50%; background: #0006; flex: none; }
+  .mech .led.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .mech .led.rev { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .mech span:last-child { font-variant-numeric: tabular-nums; color: var(--dim); }
+  .note { font-size: 11.5px; color: var(--dim); margin: 6px 4px 0; }
+  .pad { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px 14px; }
+  .pad h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .pad h2 small { color: var(--dim); font-weight: 400; font-size: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+  .shoulders { display: flex; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
+  .sgroup { display: flex; gap: 8px; align-items: stretch; }
+
+  .btn { position: relative; background: var(--panel2); border: 2px solid var(--line); border-radius: 10px;
+    min-width: 58px; height: 44px; padding: 0 8px; cursor: pointer; touch-action: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+  .btn .k { font-weight: 700; font-size: 15px; }
+  .btn .f { font-size: 10.5px; color: var(--dim); }
+  .btn.down { background: var(--accent); border-color: var(--accent); }
+  .btn.down .f { color: #fff; }
+  .btn.latched::after { content: "🔒"; position: absolute; top: -8px; right: -6px; font-size: 11px; }
+
+  .trigger { width: 58px; height: 96px; background: var(--panel2); border: 2px solid var(--line); border-radius: 10px;
+    position: relative; overflow: hidden; touch-action: none; cursor: ns-resize; }
+  .trigger .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--accent); opacity: .85; }
+  .trigger .lbl { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; font-weight: 700; font-size: 15px; pointer-events: none; line-height: 1.15; }
+  .trigger .lbl small { font-weight: 400; font-size: 10.5px; color: var(--dim); }
+  .trigger .lbl .v { font-size: 11px; font-weight: 400; }
+
+  .mid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+  .stickwrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .stick { width: min(170px, 38vw); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, #2a3441 0%, #1c232d 70%);
+    border: 2px solid var(--line); position: relative; touch-action: none; cursor: grab; }
+  .stick::before, .stick::after { content: ""; position: absolute; background: var(--line); }
+  .stick::before { left: 50%; top: 8%; bottom: 8%; width: 1px; }
+  .stick::after { top: 50%; left: 8%; right: 8%; height: 1px; }
+  .knob { position: absolute; width: 34%; height: 34%; left: 33%; top: 33%; border-radius: 50%;
+    background: #3b4a5c; border: 2px solid #6b7d91; z-index: 1; box-shadow: 0 3px 10px #0008; }
+  .stick.active .knob { background: var(--accent); border-color: #9ccaff; }
+  .stickval { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .stickfn { font-size: 11.5px; color: var(--dim); text-align: center; min-height: 15px; }
+
+  .center { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 42px); gap: 3px; }
+  .dpad .btn { min-width: 0; height: auto; padding: 0; }
+  .face { display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 46px); gap: 3px; }
+  .face .btn { min-width: 0; height: auto; border-radius: 50%; padding: 0; }
+  .face .btn .k { font-size: 16px; }
+  .face .A .k { color: var(--a); } .face .B .k { color: var(--b); }
+  .face .X .k { color: var(--x); } .face .Y .k { color: var(--y); }
+  .face .btn.down .k { color: #fff; }
+  .small { display: flex; gap: 6px; }
+  .small .btn { min-width: 50px; height: 34px; }
+
+  .clusters { display: flex; justify-content: space-around; align-items: center; margin-top: 12px; gap: 10px; flex-wrap: wrap; }
+  .custom { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .custom .btn { min-width: 76px; height: 48px; }
+  .custom .del { position: absolute; top: -9px; right: -9px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--bad); color: #fff; font-size: 12px; line-height: 20px; text-align: center; display: none; }
+  .editing .custom .del { display: block; }
+  .addbtn { background: transparent; border: 2px dashed var(--line); border-radius: 10px; color: var(--dim);
+    height: 48px; padding: 0 12px; cursor: pointer; }
+
+  /* ---------- 儀表板 ---------- */
+  .dash { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+  .dash h2 { font-size: 16px; margin: 0 0 8px; }
+  .dgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  .dgroup { background: var(--panel2); border-radius: 10px; padding: 8px 10px; }
+  .dgroup h3 { font-size: 13px; margin: 0 0 4px; color: var(--accent); }
+  .ditem { display: flex; justify-content: space-between; font-size: 13px; gap: 8px; padding: 1px 0; }
+  .ditem span:last-child { font-variant-numeric: tabular-nums; }
+  .bar { height: 4px; background: #0006; border-radius: 2px; margin: 1px 0 4px; position: relative; overflow: hidden; }
+  .bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+  .chip { padding: 0 8px; border-radius: 8px; font-size: 12px; }
+  .chip.t { background: var(--bad); color: #fff; } .chip.f { background: #0005; color: var(--dim); }
+  .empty { color: var(--dim); font-size: 13px; }
+
+  /* ---------- 對話框 ---------- */
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 16px; width: min(360px, 92vw); }
+  dialog::backdrop { background: #000a; }
+  dialog label { display: block; font-size: 14px; margin: 8px 0 4px; }
+  dialog input, dialog select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  dialog .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  dialog .acts button { border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; background: var(--panel2); }
+  dialog .acts .go { background: var(--accent); color: #fff; }
+
+  /* ---------- 小尺寸搖桿(畫面是主角,搖桿放旁邊) ---------- */
+  .pads .pad { padding: 10px 10px 12px; }
+  .pads .pad h2 { font-size: 15px; margin-bottom: 8px; flex-wrap: wrap; }
+  .pads .shoulders { margin-bottom: 6px; gap: 6px; }
+  .pads .sgroup { gap: 5px; }
+  .pads .trigger { width: 44px; height: 62px; }
+  .pads .trigger .lbl { font-size: 13px; }
+  .pads .btn { min-width: 44px; height: 36px; padding: 0 5px; border-radius: 8px; }
+  .pads .btn .k { font-size: 13px; }
+  .pads .btn .f { font-size: 9.5px; }
+  .pads .sgroup .btn { height: 62px !important; }
+  .pads .mid { gap: 6px; }
+  .pads .stick { width: min(116px, 30vw); }
+  .pads .stickfn { font-size: 10.5px; }
+  .pads .stickval { font-size: 10px; }
+  .pads .center { gap: 6px; }
+  .pads .small { flex-direction: column; gap: 5px; }
+  .pads .small .btn { min-width: 46px; height: 28px; }
+  .pads .clusters { margin-top: 8px; }
+  .pads .dpad { grid-template-columns: repeat(3, 32px); grid-template-rows: repeat(3, 32px); gap: 2px; }
+  .pads .face { grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(3, 36px); gap: 2px; }
+  .pads .face .btn { height: auto; min-width: 0; }
+  .pads .dpad .btn { height: auto; min-width: 0; }
+  .pads .custom { margin-top: 8px; padding-top: 8px; gap: 6px; }
+  .pads .custom .btn { min-width: 60px; height: 38px; }
+  .pads .addbtn { height: 38px; font-size: 13px; }
+  .src { margin-left: auto; font-size: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 4px; max-width: 150px; }
+  .pad.real { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+  .pad.real .gpbadge { display: inline-block; }
+  .gpbadge { display: none; font-size: 11px; background: var(--ok); color: #fff; border-radius: 6px; padding: 1px 6px; }
+  .gphint { font-size: 12px; color: var(--dim); background: var(--panel); border: 1px dashed var(--line); border-radius: 12px; padding: 8px 10px; }
+  details.dash summary { cursor: pointer; font-weight: 700; }
+  details.dash[open] summary { margin-bottom: 8px; }
+
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); background: #1f2937; color: #fff; border: 1px solid var(--accent);
+    padding: 12px 18px; border-radius: 12px; font-size: 15px; font-weight: 700; opacity: 0; pointer-events: none; transition: .25s; z-index: 50; max-width: 92vw; text-align: center; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .enable.flash { animation: flash .35s 4; }
+  @keyframes flash { 50% { box-shadow: 0 0 0 6px #3fb95099; transform: scale(1.08); } }
+  .banner { background: #3a2a10; border: 1px solid var(--warn); color: #ffd58a; border-radius: 12px; padding: 10px 14px; font-weight: 700; margin-bottom: 12px; }
+  .phone { font-size: 12px; color: var(--dim); margin-top: 14px; text-align: center; }
+  .phone code { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>🎮 LEO 模擬搖桿</h1>
+  <div class="conn">
+    <span><span class="dot" id="dotHal"></span>模擬器</span>
+    <span><span class="dot" id="dotNt"></span>儀表板</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="modes" id="modes">
+    <button data-m="teleop" class="sel">遙控</button>
+    <button data-m="auto">自動</button>
+    <button data-m="test">測試</button>
+  </div>
+  <label class="toggle" title="開啟後:按一下按鈕就一直按著,再按一下才放開;搖桿放開也停在原位">
+    <input type="checkbox" id="latch"> 🔒 鎖定模式
+  </label>
+  <label class="toggle"><input type="checkbox" id="edit"> ✏️ 編輯按鈕</label>
+  <button class="enable" id="enable" disabled>啟用</button>
+</div>
+<div class="hint">
+  滑鼠或手指拖搖桿、按按鈕。滑鼠一次只能按一個,要同時按兩個(例如 <b>RT + A</b> 發射)請打開 <b>🔒 鎖定模式</b>。
+  緊急停止:按鍵盤 <b>空白鍵</b> 或 <b>Enter</b>。
+</div>
+
+<div class="banner" id="banner" style="display:none"></div>
+<div class="layout">
+  <div class="screenCol">
+    <div class="screen">
+      <div class="bar2">
+        <b>🖥️ 模擬畫面</b>
+        <span class="status" id="status">停用中</span>
+        <span class="spacer"></span>
+        <div class="seg" id="viewSeg"><button data-v="3d" class="sel">3D</button><button data-v="2d">2D 俯視</button></div>
+        <div class="seg" id="camSeg"><button data-c="chase" class="sel">跟車</button><button data-c="fpv">第一人稱</button><button data-c="top">全場</button><button data-c="broadcast">轉播</button></div>
+        <button id="resetPose">↺ 回起點</button>
+        <button id="fullBtn">⛶ 全螢幕</button>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="field"></canvas>
+        <div class="hud" id="hud"></div>
+        <div class="rsl" id="rsl" title="RSL 燈:停用恆亮、啟用閃爍(跟真的機器人一樣)"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="note">機器人位置是用底盤出力推算的示意動畫;砲台角度、手臂長度也是示意比例(齒比還沒量)。數字都是模擬器裡 LEO 程式真的算出來的。</div>
+    </div>
+
+    <details class="dash">
+      <summary>📊 全部數值(SmartDashboard)</summary>
+      <div class="dgrid" id="dash"><div class="empty">等模擬器連上…</div></div>
+    </details>
+  </div>
+
+  <div class="pads" id="pads">
+    <div class="gphint" id="gphint">🎮 接上 Xbox 手把後,<b>按一下手把上任一顆按鈕</b>,網頁就會抓到(第 1 支當駕駛手、第 2 支當操作手)。</div>
+  </div>
+</div>
+
+<div class="phone" id="phone"></div>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <div style="font-weight:700">＋ 新增自訂按鈕</div>
+    <label>按鈕上顯示的字</label>
+    <input id="fLabel" maxlength="10" placeholder="例如:快速發射" required>
+    <label>要按下控制器的哪一顆</label>
+    <select id="fTarget"></select>
+    <div class="acts">
+      <button value="cancel" formnovalidate>取消</button>
+      <button value="ok" class="go">新增</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+// ============================================================
+//  設定:LEO 的按鍵功能(跟 Robot.java 的操作方式一致,改操作方式時要一起改)
+// ============================================================
+const PADS = [
+  { port: 0, name: '駕駛手', note: '坦克式:左搖桿 = 左輪、右搖桿 = 右輪',
+    fn: { LS: '左輪 ↕', RS: '右輪 ↕' } },
+  { port: 1, name: '操作手', note: '要發射:先按住 RT 讓飛輪轉起來,再加按 A',
+    fn: { LS: 'Turret 左右 ↔', UP: '手臂收起', DOWN: '手臂放下', LB: '吸球', X: '吐球',
+          RT: '飛輪', A: '送球(配RT)', RB: 'Orbit' } },
+];
+
+// WPILib XboxController 的編號
+const AX = { LX: 0, LY: 1, LT: 2, RT: 3, RX: 4, RY: 5 };
+const BTN = { A: 1, B: 2, X: 3, Y: 4, LB: 5, RB: 6, BACK: 7, START: 8, LSB: 9, RSB: 10 };
+const BTN_NAMES = { 1: 'A', 2: 'B', 3: 'X', 4: 'Y', 5: 'LB', 6: 'RB', 7: 'Back', 8: 'Start', 9: '左搖桿按下', 10: '右搖桿按下' };
+
+// ============================================================
+//  狀態
+// ============================================================
+const state = PADS.map(() => ({ axes: [0, 0, 0, 0, 0, 0], buttons: Array(10).fill(false), pov: { u: 0, d: 0, l: 0, r: 0 } }));
+// 同一顆按鈕可能同時被好幾個地方按著(例如 A 和自訂按鈕都對應到 1),用計數避免放開一個就整顆放開
+const holds = PADS.map(() => Array(10).fill(0).map(() => new Set()));
+let enabled = false, mode = 'teleop';
+const latchEl = document.getElementById('latch');
+const editEl = document.getElementById('edit');
+
+function povAngle(p) {
+  const x = p.r - p.l, y = p.u - p.d;
+  if (!x && !y) return -1;
+  return (Math.round(Math.atan2(x, y) * 180 / Math.PI / 45) * 45 + 360) % 360;
+}
+
+// ============================================================
+//  畫面
+// ============================================================
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+function makeButton(pi, key, label, fn, extraCls) {
+  const b = h('div', 'btn ' + (extraCls || ''), `<span class="k">${label}</span>${fn ? `<span class="f">${fn}</span>` : ''}`);
+  const id = 'b' + Math.random().toString(36).slice(2);
+  let latched = false;
+  const set = on => {
+    const s = key.startsWith('POV:') ? null : holds[pi][BTN[key] ? BTN[key] - 1 : +key - 1];
+    if (key.startsWith('POV:')) state[pi].pov[key.slice(4)] = on ? 1 : 0;
+    else { on ? s.add(id) : s.delete(id); state[pi].buttons[BTN[key] ? BTN[key] - 1 : +key - 1] = s.size > 0; }
+    b.classList.toggle('down', on);
+  };
+  b.addEventListener('pointerdown', e => {
+    if (editEl.checked) return;
+    e.preventDefault(); b.setPointerCapture(e.pointerId);
+    if (latchEl.checked) { latched = !latched; set(latched); b.classList.toggle('latched', latched); }
+    else set(true);
+  });
+  const up = () => { if (!latchEl.checked && !latched) set(false); };
+  b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+  b._release = () => { latched = false; b.classList.remove('latched'); set(false); };
+  b._key = key;
+  return b;
+}
+
+function makeTrigger(pi, axis, label, fn) {
+  const t = h('div', 'trigger', `<div class="fill"></div><div class="lbl">${label}${fn ? `<small>${fn}</small>` : ''}<span class="v">0.00</span></div>`);
+  const fill = t.querySelector('.fill'), v = t.querySelector('.v');
+  const set = val => { state[pi].axes[axis] = val; fill.style.height = (val * 100) + '%'; v.textContent = val.toFixed(2); };
+  const fromEvent = e => { const r = t.getBoundingClientRect(); return Math.min(1, Math.max(0, (r.bottom - e.clientY) / r.height)); };
+  let dragging = false;
+  t.addEventListener('pointerdown', e => { e.preventDefault(); t.setPointerCapture(e.pointerId); dragging = true; set(fromEvent(e)); });
+  t.addEventListener('pointermove', e => { if (dragging) set(fromEvent(e)); });
+  const up = () => { dragging = false; if (!latchEl.checked) set(0); };
+  t.addEventListener('pointerup', up); t.addEventListener('pointercancel', up);
+  t._release = () => set(0);
+  t._show = val => { fill.style.height = (val * 100) + '%'; v.textContent = val.toFixed(2); };  // 實體手把用:只改畫面
+  return t;
+}
+
+function makeStick(pi, ax, ay, fn) {
+  const wrap = h('div', 'stickwrap');
+  const s = h('div', 'stick', '<div class="knob"></div>');
+  const knob = s.querySelector('.knob');
+  const val = h('div', 'stickval', 'X 0.00 · Y 0.00');
+  wrap.append(h('div', 'stickfn', fn || ''), s, val);
+  const set = (x, y) => {
+    state[pi].axes[ax] = x; state[pi].axes[ay] = y;
+    knob.style.left = (33 + x * 33) + '%'; knob.style.top = (33 + y * 33) + '%';
+    val.textContent = `X ${x.toFixed(2)} · Y ${y.toFixed(2)}`;
+  };
+  const fromEvent = e => {
+    const r = s.getBoundingClientRect();
+    let x = (e.clientX - r.left - r.width / 2) / (r.width * 0.36);
+    let y = (e.clientY - r.top - r.height / 2) / (r.height * 0.36);
+    const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
+    return [Math.round(x * 100) / 100, Math.round(y * 100) / 100];
+  };
+  let dragging = false;
+  s.addEventListener('pointerdown', e => { e.preventDefault(); s.setPointerCapture(e.pointerId); dragging = true; s.classList.add('active'); set(...fromEvent(e)); });
+  s.addEventListener('pointermove', e => { if (dragging) set(...fromEvent(e)); });
+  const up = () => { dragging = false; s.classList.remove('active'); if (!latchEl.checked) set(0, 0); };
+  s.addEventListener('pointerup', up); s.addEventListener('pointercancel', up);
+  s.addEventListener('dblclick', () => set(0, 0));  // 鎖定模式下雙擊回中間
+  s._release = () => set(0, 0);
+  wrap._show = (x, y) => {  // 實體手把用:只改畫面
+    knob.style.left = (33 + x * 33) + '%'; knob.style.top = (33 + y * 33) + '%';
+    val.textContent = `X ${x.toFixed(2)} · Y ${y.toFixed(2)}`;
+  };
+  return wrap;
+}
+
+const releasers = [];
+const visuals = [];
+function build() {
+  const root = document.getElementById('pads');
+  PADS.forEach((p, pi) => {
+    const pad = h('div', 'pad'); pad.dataset.pi = pi;
+    const title = h('h2', '', `${p.name} <span class="gpbadge">🎮 實體手把</span>`);
+    title.title = `USB 第 ${p.port} 格 · ${p.note}`;
+    const src = h('select', 'src'); src.dataset.pi = pi;
+    src.onchange = () => chooseSource(pi, src.value);
+    title.append(src); pad.append(title);
+
+    const sh = h('div', 'shoulders');
+    const L = h('div', 'sgroup'), R = h('div', 'sgroup');
+    const lt = makeTrigger(pi, AX.LT, 'LT', p.fn.LT), rt = makeTrigger(pi, AX.RT, 'RT', p.fn.RT);
+    const lb = makeButton(pi, 'LB', 'LB', p.fn.LB), rb = makeButton(pi, 'RB', 'RB', p.fn.RB);
+    lb.style.height = rb.style.height = '96px';
+    L.append(lt, lb); R.append(rb, rt); sh.append(L, R); pad.append(sh);
+
+    const mid = h('div', 'mid');
+    const ls = makeStick(pi, AX.LX, AX.LY, p.fn.LS ? '左搖桿:' + p.fn.LS : '左搖桿');
+    const rs = makeStick(pi, AX.RX, AX.RY, p.fn.RS ? '右搖桿:' + p.fn.RS : '右搖桿');
+    const center = h('div', 'center');
+    const small = h('div', 'small');
+    const back = makeButton(pi, 'BACK', 'Back', p.fn.BACK), start = makeButton(pi, 'START', 'Start', p.fn.START);
+    small.append(back, start); center.append(small);
+    mid.append(ls, center, rs); pad.append(mid);
+
+    const cl = h('div', 'clusters');
+    const dpad = h('div', 'dpad');
+    const dUp = makeButton(pi, 'POV:u', '▲', p.fn.UP), dDown = makeButton(pi, 'POV:d', '▼', p.fn.DOWN);
+    const dL = makeButton(pi, 'POV:l', '◀', p.fn.LEFT), dR = makeButton(pi, 'POV:r', '▶', p.fn.RIGHT);
+    [null, dUp, null, dL, null, dR, null, dDown, null].forEach(b => dpad.append(b || h('div')));
+    const face = h('div', 'face');
+    const bY = makeButton(pi, 'Y', 'Y', p.fn.Y, 'Y'), bX = makeButton(pi, 'X', 'X', p.fn.X, 'X');
+    const bB = makeButton(pi, 'B', 'B', p.fn.B, 'B'), bA = makeButton(pi, 'A', 'A', p.fn.A, 'A');
+    [null, bY, null, bX, null, bB, null, bA, null].forEach(b => face.append(b || h('div')));
+    cl.append(dpad, face); pad.append(cl);
+
+    const custom = h('div', 'custom'); custom.dataset.pi = pi;
+    pad.append(custom);
+    root.append(pad);
+
+    visuals[pi] = { pad, triggers: [[lt, AX.LT], [rt, AX.RT]], sticks: [[ls, AX.LX, AX.LY], [rs, AX.RX, AX.RY]],
+                    buttons: [lb, rb, back, start, dUp, dDown, dL, dR, bY, bX, bB, bA] };
+    releasers.push(lt, rt, lb, rb, back, start, dUp, dDown, dL, dR, bY, bX, bB, bA,
+      ls.querySelector('.stick'), rs.querySelector('.stick'));
+    renderCustom(pi);
+  });
+}
+
+// ---------- 自訂按鈕(存在這台裝置的瀏覽器裡) ----------
+const CKEY = 'leo-vj-custom-v1';
+function loadCustom() { try { return JSON.parse(localStorage.getItem(CKEY)) || [[], []]; } catch { return [[], []]; } }
+function saveCustom(c) { try { localStorage.setItem(CKEY, JSON.stringify(c)); } catch {} }
+let customs = loadCustom();
+
+function renderCustom(pi) {
+  const box = document.querySelector(`.custom[data-pi="${pi}"]`);
+  box.innerHTML = '';
+  box.append(h('span', '', '<small style="color:var(--dim)">自訂:</small>'));
+  (customs[pi] || []).forEach((c, idx) => {
+    const key = c.target.startsWith('POV:') ? c.target : String(c.target);
+    const b = makeButton(pi, key, c.label, targetName(c.target));
+    const del = h('div', 'del', '✕');
+    del.addEventListener('pointerdown', e => { e.stopPropagation(); customs[pi].splice(idx, 1); saveCustom(customs); renderCustom(pi); });
+    b.append(del);
+    releasers.push(b);
+    box.append(b);
+  });
+  const add = h('button', 'addbtn', '＋ 新增按鈕');
+  add.onclick = () => openDialog(pi);
+  box.append(add);
+}
+function targetName(t) {
+  if (String(t).startsWith('POV:')) return { 'POV:u': '十字 ▲', 'POV:d': '十字 ▼', 'POV:l': '十字 ◀', 'POV:r': '十字 ▶' }[t];
+  return BTN_NAMES[t];
+}
+let dlgPi = 0;
+function openDialog(pi) {
+  dlgPi = pi;
+  const sel = document.getElementById('fTarget'); sel.innerHTML = '';
+  Object.entries(BTN_NAMES).forEach(([n, name]) => sel.append(new Option(`${name}(按鈕 ${n})`, n)));
+  ['POV:u', 'POV:d', 'POV:l', 'POV:r'].forEach(k => sel.append(new Option(targetName(k), k)));
+  document.getElementById('fLabel').value = '';
+  document.getElementById('dlg').showModal();
+}
+document.getElementById('dlg').addEventListener('close', () => {
+  const d = document.getElementById('dlg');
+  if (d.returnValue !== 'ok') return;
+  const label = document.getElementById('fLabel').value.trim(); if (!label) return;
+  customs[dlgPi] = customs[dlgPi] || [];
+  customs[dlgPi].push({ label, target: document.getElementById('fTarget').value });
+  saveCustom(customs); renderCustom(dlgPi);
+});
+editEl.addEventListener('change', () => document.body.classList.toggle('editing', editEl.checked));
+latchEl.addEventListener('change', () => { if (!latchEl.checked) releaseAll(); });
+function releaseAll() { releasers.forEach(r => r._release && r._release()); }
+
+// ============================================================
+//  實體手把(瀏覽器的 Gamepad API)
+//  Xbox 手把在瀏覽器的「標準配置」:
+//    axes 0 左X、1 左Y、2 右X、3 右Y
+//    buttons 0 A、1 B、2 X、3 Y、4 LB、5 RB、6 LT、7 RT、8 Back、9 Start、10 左搖桿按、11 右搖桿按、12~15 十字 上下左右
+// ============================================================
+const gpAssign = [null, null];     // 每個控制器對應哪支手把(navigator 的 index),null = 用網頁搖桿
+const gpManual = [false, false];   // 使用者自己選過就不要自動分配
+const DEADBAND = 0.08;
+const dz = v => Math.abs(v) < DEADBAND ? 0 : Math.round(v * 100) / 100;
+const gamepads = () => (navigator.getGamepads ? [...navigator.getGamepads()] : []).filter(Boolean);
+
+function chooseSource(pi, val) {
+  gpManual[pi] = true;
+  const gi = val === 'web' ? null : +val;
+  if (gi != null) gpAssign.forEach((g, i) => { if (g === gi && i !== pi) setAssign(i, null); });  // 同一支不要控制兩邊
+  setAssign(pi, gi);
+}
+function setAssign(pi, gi) {
+  if (gpAssign[pi] === gi) return;
+  gpAssign[pi] = gi;
+  // 換來源時先全部放開,免得殘留按著的按鍵
+  const s = state[pi];
+  s.axes.fill(0); s.buttons.fill(false); s.pov = { u: 0, d: 0, l: 0, r: 0 };
+  holds[pi].forEach(set => set.clear());
+  syncVisual(pi);
+  refreshSourceUI();
+}
+
+let lastGpCount = -1;
+function pollGamepads() {
+  const list = gamepads();
+  // 拔掉的手把 → 回到網頁搖桿
+  gpAssign.forEach((gi, pi) => { if (gi != null && !list.some(g => g.index === gi)) setAssign(pi, null); });
+  // 新插的手把 → 自動分配給還空著的(駕駛手優先)
+  for (const g of list) {
+    if (gpAssign.includes(g.index)) continue;
+    const free = gpAssign.findIndex((a, pi) => a == null && !gpManual[pi]);
+    if (free >= 0) setAssign(free, g.index);
+  }
+  gpAssign.forEach((gi, pi) => {
+    if (gi == null) return;
+    const g = list.find(x => x.index === gi); if (!g) return;
+    const b = i => !!(g.buttons[i] && g.buttons[i].pressed);
+    const bv = i => (g.buttons[i] ? g.buttons[i].value : 0);
+    const s = state[pi];
+    s.axes[AX.LX] = dz(g.axes[0] || 0); s.axes[AX.LY] = dz(g.axes[1] || 0);
+    s.axes[AX.RX] = dz(g.axes[2] || 0); s.axes[AX.RY] = dz(g.axes[3] || 0);
+    s.axes[AX.LT] = dz(bv(6)); s.axes[AX.RT] = dz(bv(7));
+    [0, 1, 2, 3, 4, 5, 8, 9, 10, 11].forEach((gb, k) => { s.buttons[k] = b(gb); });
+    s.pov = { u: +b(12), d: +b(13), l: +b(14), r: +b(15) };
+    if (s.axes.some(v => v) || s.buttons.some(v => v) || povAngle(s.pov) >= 0) { lastInput = performance.now(); if (!enabled) warnNotEnabled(); }
+    syncVisual(pi);
+  });
+  if (list.length !== lastGpCount) { lastGpCount = list.length; refreshSourceUI(); }
+}
+
+// 讓畫面上的搖桿跟著實體手把動
+function syncVisual(pi) {
+  const v = visuals[pi]; if (!v) return;
+  const s = state[pi];
+  v.triggers.forEach(([t, ax]) => t._show(s.axes[ax]));
+  v.sticks.forEach(([w, ax, ay]) => w._show(s.axes[ax], s.axes[ay]));
+  v.buttons.forEach(b => {
+    const k = b._key;
+    const on = k.startsWith('POV:') ? !!s.pov[k.slice(4)] : !!s.buttons[(BTN[k] || +k) - 1];
+    b.classList.toggle('down', on);
+  });
+}
+
+function refreshSourceUI() {
+  const list = gamepads();
+  document.querySelectorAll('select.src').forEach(sel => {
+    const pi = +sel.dataset.pi;
+    sel.innerHTML = '';
+    sel.append(new Option('🖱️ 網頁搖桿', 'web'));
+    list.forEach((g, n) => sel.append(new Option(`🎮 手把 ${n + 1}:${g.id.replace(/\(.*$/, '').trim().slice(0, 18) || '手把'}`, g.index)));
+    sel.value = gpAssign[pi] == null ? 'web' : String(gpAssign[pi]);
+    if (visuals[pi]) visuals[pi].pad.classList.toggle('real', gpAssign[pi] != null);
+  });
+  const hint = document.getElementById('gphint');
+  if (hint) hint.innerHTML = list.length
+    ? `🎮 偵測到 ${list.length} 支手把。每個控制器右上角可以選要用哪一支。`
+    : '🎮 接上 Xbox 手把後,<b>按一下手把上任一顆按鈕</b>,網頁就會抓到(第 1 支當駕駛手、第 2 支當操作手)。';
+}
+window.addEventListener('gamepadconnected', () => pollGamepads());
+window.addEventListener('gamepaddisconnected', () => pollGamepads());
+
+// ============================================================
+//  連線 1:模擬器(WebSocket 3300)—— 送搖桿和啟用狀態
+// ============================================================
+const host = location.hostname || 'localhost';
+let hal = null, halOk = false;
+const halData = {};      // '裝置種類 編號' -> { 欄位: 數值 }
+function connectHal() {
+  // 網址加 ?hal=3301 可以連別的 port(模擬器用環境變數 HALSIMWS_PORT 換 port 時;測試用)
+  const halPort = +new URLSearchParams(location.search).get('hal') || 3300;
+  hal = new WebSocket(`ws://${host}:${halPort}/wpilibws`);
+  hal.onopen = () => { halOk = true; updateConn(); };
+  // 模擬器也會送出「硬體」訊號:SPARK MAX / Talon FX 的 SimDevice、PWM 馬達…
+  // 存起來給 ⚙️ 機構設定選(讓別人的程式也能對應到畫面上的機構)
+  hal.onmessage = ev => {
+    try {
+      const msgs = JSON.parse(ev.data);
+      for (const m of Array.isArray(msgs) ? msgs : [msgs]) {
+        if (!m || !m.type || m.type === 'Joystick' || m.type === 'DriverStation' || !m.data) continue;
+        const key = `${m.type} ${m.device ?? ''}`.trim();
+        const d = halData[key] || (halData[key] = {});
+        // 欄位名稱前面的 < > <> 是方向(程式→模擬 / 模擬→程式),去掉比較好讀
+        for (const [k, v] of Object.entries(m.data)) d[k.replace(/^[<>]+/, '')] = v;
+      }
+    } catch {}
+  };
+  hal.onclose = () => { halOk = false; setEnabled(false); updateConn(); setTimeout(connectHal, 1000); };
+  hal.onerror = () => {};
+}
+function sendHal(o) { if (halOk && hal.readyState === 1) hal.send(JSON.stringify(o)); }
+// 同時開好幾個搖桿網頁(例如電腦 + 手機)時,沒在用的那頁不能一直送「停用 + 搖桿歸零」蓋掉別人。
+// 規則:停用中而且 1.5 秒沒碰畫面 → 這頁就先不送。
+let lastInput = performance.now();
+document.addEventListener('pointerdown', e => {
+  lastInput = performance.now();
+  if (e.target.closest && e.target.closest('.pads') && !enabled) warnNotEnabled();
+}, true);
+
+// 按了按鈕機器人卻沒動:跳提示 + 啟用鍵閃一下(使用者 2026-09-22 就卡在這裡)
+const toastEl = document.createElement('div');
+toastEl.className = 'toast';
+document.body.append(toastEl);
+let toastT = 0;
+function toast(msg, ms = 2500) {
+  toastEl.textContent = msg; toastEl.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), ms);
+}
+let lastWarn = 0;
+function warnNotEnabled() {
+  const now = performance.now(); if (now - lastWarn < 1500) return; lastWarn = now;
+  if (halOk) {
+    toast('👉 先按右上角綠色的「啟用」,機器人才會動(跟真的機器人一樣)');
+    enableBtn.classList.remove('flash'); void enableBtn.offsetWidth; enableBtn.classList.add('flash');
+  } else if (ntOk) {
+    toast('⚠️ 另一個搖桿網頁(別的分頁或手機)正在控制模擬器,把那一頁關掉,這頁就能用', 4000);
+  } else {
+    toast('⚠️ 模擬器還沒連上:等 10~30 秒,或重新雙擊桌面「LEO 模擬搖桿」', 4000);
+  }
+}
+function tick(force) {
+  pollGamepads();
+  if (!halOk) return;
+  if (!force && !enabled && performance.now() - lastInput > 1500) return;
+  sendHal({ type: 'DriverStation', device: '', data: {
+    '>enabled': enabled, '>autonomous': mode === 'auto', '>test': mode === 'test', '>ds': true, '>new_data': true } });
+  state.forEach((s, pi) => sendHal({ type: 'Joystick', device: String(PADS[pi].port), data: {
+    '>axes': s.axes, '>buttons': s.buttons, '>povs': [povAngle(s.pov)] } }));
+}
+setInterval(tick, 20);  // 跟機器人一樣每 20ms 一次
+
+const enableBtn = document.getElementById('enable');
+function setEnabled(on) {
+  lastInput = performance.now();   // 按停用後還會再送 1.5 秒,確定模擬器有收到
+  enabled = on && halOk;
+  enableBtn.classList.toggle('on', enabled);
+  enableBtn.textContent = enabled ? '停用' : '啟用';
+}
+enableBtn.onclick = () => setEnabled(!enabled);
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => {
+  setEnabled(false);  // 跟真的 Driver Station 一樣:換模式先停下來
+  mode = b.dataset.m;
+  document.querySelectorAll('#modes button').forEach(x => x.classList.toggle('sel', x === b));
+});
+// 緊急停止
+window.addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); setEnabled(false); } });
+// 切到別的分頁或關掉網頁就停用,免得機器人一直跑
+document.addEventListener('visibilitychange', () => { if (document.hidden) { setEnabled(false); releaseAll(); } });
+window.addEventListener('pagehide', () => { if (enabled) { enabled = false; tick(true); } });
+
+function updateConn() {
+  // 模擬器一次只讓一個網頁控制:儀表板連得上、搖桿連不上 = 別的分頁或手機正在控制
+  const busy = !halOk && ntOk;
+  enableBtn.title = busy ? '另一個搖桿網頁(別的分頁或手機)正在控制模擬器,把那頁關掉這裡就能用' : '';
+  document.getElementById('dotHal').parentElement.lastChild.textContent = busy ? '模擬器(被別的網頁佔用)' : '模擬器';
+  document.getElementById('dotHal').classList.toggle('on', halOk);
+  document.getElementById('dotNt').classList.toggle('on', ntOk);
+  enableBtn.disabled = !halOk;
+  const banner = document.getElementById('banner');
+  banner.textContent = busy ? '⚠️ 另一個搖桿網頁(別的分頁或手機)正在控制模擬器 —— 把那一頁關掉,這頁就會自動接上'
+    : (!halOk && !ntOk) ? '⏳ 正在連模擬器…(剛開要等 10~30 秒;一直連不上就重新雙擊桌面「LEO 模擬搖桿」)' : '';
+  banner.style.display = banner.textContent ? '' : 'none';
+}
+
+// ============================================================
+//  連線 2:NetworkTables 4(port 5810)—— 讀 SmartDashboard 顯示機器人狀態
+// ============================================================
+function decodeMsgpack(buf) {
+  let i = 0; const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength); const td = new TextDecoder();
+  const str = n => { const s = td.decode(buf.subarray(i, i + n)); i += n; return s; };
+  const arr = n => { const a = []; for (let k = 0; k < n; k++) a.push(r()); return a; };
+  const map = n => { const o = {}; for (let k = 0; k < n; k++) { const key = r(); o[key] = r(); } return o; };
+  function r() {
+    const b = buf[i++];
+    if (b <= 0x7f) return b;
+    if (b >= 0xe0) return b - 256;
+    if ((b & 0xf0) === 0x90) return arr(b & 0x0f);
+    if ((b & 0xf0) === 0x80) return map(b & 0x0f);
+    if ((b & 0xe0) === 0xa0) return str(b & 0x1f);
+    let v;
+    switch (b) {
+      case 0xc0: return null; case 0xc2: return false; case 0xc3: return true;
+      case 0xc4: v = buf[i++]; i += v; return null;
+      case 0xc5: v = dv.getUint16(i); i += 2 + v; return null;
+      case 0xc6: v = dv.getUint32(i); i += 4 + v; return null;
+      case 0xca: v = dv.getFloat32(i); i += 4; return v;
+      case 0xcb: v = dv.getFloat64(i); i += 8; return v;
+      case 0xcc: return buf[i++];
+      case 0xcd: v = dv.getUint16(i); i += 2; return v;
+      case 0xce: v = dv.getUint32(i); i += 4; return v;
+      case 0xcf: v = Number(dv.getBigUint64(i)); i += 8; return v;
+      case 0xd0: v = dv.getInt8(i); i += 1; return v;
+      case 0xd1: v = dv.getInt16(i); i += 2; return v;
+      case 0xd2: v = dv.getInt32(i); i += 4; return v;
+      case 0xd3: v = Number(dv.getBigInt64(i)); i += 8; return v;
+      case 0xd9: return str(buf[i++]);
+      case 0xda: v = dv.getUint16(i); i += 2; return str(v);
+      case 0xdb: v = dv.getUint32(i); i += 4; return str(v);
+      case 0xdc: v = dv.getUint16(i); i += 2; return arr(v);
+      case 0xdd: v = dv.getUint32(i); i += 4; return arr(v);
+      case 0xde: v = dv.getUint16(i); i += 2; return map(v);
+    }
+    throw new Error('msgpack 0x' + b.toString(16));
+  }
+  const out = []; while (i < buf.length) out.push(r()); return out;
+}
+
+let nt = null, ntOk = false;
+const topics = {};   // id -> name
+const values = {};   // name -> value
+const topicTypes = {};   // name -> 'double' / 'boolean' / 'string'…
+function connectNt() {
+  nt = new WebSocket(`ws://${host}:5810/nt/leo-joystick`, ['v4.1.networktables.first.wpi.edu', 'networktables.first.wpi.edu']);
+  nt.binaryType = 'arraybuffer';
+  nt.onopen = () => {
+    ntOk = true; updateConn();
+    // 訂閱全部(不只 SmartDashboard):別隊可能用 AdvantageKit 或自己的 NT 名稱,⚙️ 機構設定要列得出來
+    nt.send(JSON.stringify([{ method: 'subscribe', params: { topics: [''], subuid: 1, options: { prefix: true, periodic: 0.1 } } }]));
+  };
+  nt.onmessage = ev => {
+    if (typeof ev.data === 'string') {
+      try {
+        for (const m of JSON.parse(ev.data)) {
+          if (m.method === 'announce') { topics[m.params.id] = m.params.name; topicTypes[m.params.name] = m.params.type; }
+          if (m.method === 'unannounce') { delete values[m.params.name]; delete topics[m.params.id]; }
+        }
+      } catch {}
+    } else {
+      try {
+        for (const f of decodeMsgpack(new Uint8Array(ev.data))) {
+          if (!Array.isArray(f)) continue;
+          if (typeof f[1] === 'number' && f[1] > 0) ntTimeOffset = f[1] - performance.now() * 1000;  // 跟模擬器對時(微秒)
+          if (topics[f[0]]) values[topics[f[0]]] = f[3];
+        }
+      } catch {}
+    }
+  };
+  nt.onclose = () => { ntOk = false; ntPubs = {}; updateConn(); setTimeout(connectNt, 1500); };
+  nt.onerror = () => {};
+}
+
+// ============================================================
+//  把模擬畫面的機器人位置、場上的球「發」到 NetworkTables
+//  → AdvantageScope 可以用官方 2026 場地的 3D 模型顯示(比我們自己畫的真實很多)
+//  用 WPILib 的 struct 格式(Pose2d / Translation3d),AdvantageScope 直接看得懂
+// ============================================================
+let ntTimeOffset = 0, ntPubs = {}, ntNextId = 100;
+const SCHEMAS = {
+  'struct:Translation2d': 'double x;double y',
+  'struct:Rotation2d': 'double value',
+  'struct:Pose2d': 'Translation2d translation;Rotation2d rotation',
+  'struct:Translation3d': 'double x;double y;double z',
+};
+function mpEncode(arr) {   // 只需要 [整數, 整數, 整數, 二進位資料] 這種格式
+  const parts = [0x94];
+  const int = n => { const b = new Uint8Array(9); b[0] = 0xd3; new DataView(b.buffer).setBigInt64(1, BigInt(Math.round(n))); parts.push(...b); };
+  int(arr[0]); int(arr[1]); int(arr[2]);
+  const bin = arr[3];
+  if (bin.length < 256) parts.push(0xc4, bin.length);
+  else if (bin.length < 65536) parts.push(0xc5, bin.length >> 8, bin.length & 255);
+  else parts.push(0xc6, (bin.length >>> 24) & 255, (bin.length >> 16) & 255, (bin.length >> 8) & 255, bin.length & 255);
+  const out = new Uint8Array(parts.length + bin.length);
+  out.set(parts); out.set(bin, parts.length);
+  return out;
+}
+function ntPublishRaw(name, type, bytes) {
+  if (!ntOk || !nt || nt.readyState !== 1) return;
+  if (!ntPubs[name]) {
+    ntPubs[name] = ntNextId++;
+    nt.send(JSON.stringify([{ method: 'publish', params: { name, pubuid: ntPubs[name], type, properties: {} } }]));
+  }
+  nt.send(mpEncode([ntPubs[name], performance.now() * 1000 + ntTimeOffset, 5, bytes]));
+}
+let schemasSent = false;
+function ntSendSchemas() {
+  const enc = new TextEncoder();
+  for (const [k, s] of Object.entries(SCHEMAS)) ntPublishRaw('/.schema/' + k, 'structschema', enc.encode(s));
+  schemasSent = true;
+}
+function doubles(list) {
+  const b = new Uint8Array(list.length * 8), dv = new DataView(b.buffer);
+  list.forEach((v, i) => dv.setFloat64(i * 8, v, true));
+  return b;
+}
+// 我們的場地 y 往下;WPILib/AdvantageScope 的 y 往上(藍方在左下角),所以 y 要翻過來
+window.publishSimToNT = (pose, fieldBalls, shots, heldBalls) => {
+  if (!ntOk) { schemasSent = false; return; }
+  if (!schemasSent) ntSendSchemas();
+  const FH = 8.07;
+  ntPublishRaw('/LEO-Sim/RobotPose', 'struct:Pose2d', doubles([pose.x, FH - pose.y, pose.th]));
+  const pts = [];
+  for (const b of fieldBalls) pts.push(b.x, FH - b.y, 0.075);
+  for (const s of shots) {
+    pts.push(s.x, FH - s.y, s.z || 0);
+  }
+  ntPublishRaw('/LEO-Sim/Fuel', 'struct:Translation3d[]', doubles(pts));
+  ntPublishRaw('/LEO-Sim/HeldFuel', 'struct:Translation3d[]', doubles(heldBalls || []));
+};
+
+function renderDash() {
+  const box = document.getElementById('dash');
+  const groups = {};
+  for (const [name, v] of Object.entries(values)) {
+    const rel = name.replace('/SmartDashboard/', '');
+    if (rel.startsWith('.') || typeof v === 'object') continue;
+    const [g, ...rest] = rel.split('/');
+    const key = rest.length ? rest.join('/') : g;
+    (groups[rest.length ? g : '其他'] ||= []).push([key, v]);
+  }
+  const names = Object.keys(groups).sort();
+  if (!names.length) { box.innerHTML = `<div class="empty">${ntOk ? '模擬器還沒送資料…' : '等模擬器連上…'}</div>`; return; }
+  box.innerHTML = names.map(g => `<div class="dgroup"><h3>${g}</h3>${groups[g].sort().map(([k, v]) => {
+    if (typeof v === 'boolean') return `<div class="ditem"><span>${k}</span><span class="chip ${v ? 't' : 'f'}">${v ? '是' : '否'}</span></div>`;
+    if (typeof v === 'number') {
+      const isOut = /出力/.test(k);
+      const bar = isOut ? `<div class="bar"><i style="left:${v < 0 ? 50 + v * 50 : 50}%;width:${Math.abs(v) * 50}%"></i></div>` : '';
+      return `<div class="ditem"><span>${k}</span><span>${v.toFixed(2)}</span></div>${bar}`;
+    }
+    return `<div class="ditem"><span>${k}</span><span>${String(v)}</span></div>`;
+  }).join('')}</div>`).join('');
+}
+setInterval(renderDash, 150);
+
+// ---------- 手機連線提示 ----------
+fetch('/info').then(r => r.json()).then(info => {
+  if (info.urls && info.urls.length)
+    document.getElementById('phone').innerHTML = '📱 手機/平板(要連同一個 Wi-Fi)打開:' + info.urls.map(u => `<code>${u}</code>`).join(' 或 ') +
+      '<br>模擬器一次只讓一個網頁控制,用手機時先把電腦上的這一頁關掉。';
+}).catch(() => {});
+
+let legendT = 0;
+function renderLegend(L, R, arm, fly, orbit, idx, rollerDir) {
+  const now = performance.now(); if (now - legendT < 150) return; legendT = now;
+  const led = (on, rev) => `<span class="led ${on ? (rev ? 'rev' : 'on') : ''}"></span>`;
+  const items = [
+    ['底盤', Math.abs(L) + Math.abs(R) > 0.02, false, `左 ${L.toFixed(2)} / 右 ${R.toFixed(2)}`],
+    ['Intake 手臂', arm > 0.05, false, arm > 0.95 ? '放下' : arm < 0.05 ? '收起' : Math.round(arm * 100) + '%'],
+    ['Intake 滾輪', rollerDir !== 0, rollerDir < 0, rollerDir > 0 ? '吸球' : rollerDir < 0 ? '吐球' : '停'],
+    ['Turret', Math.abs(ROBOT.turretRaw()) > 0.05, false, (ROBOT.turretRad() * 180 / Math.PI).toFixed(0) + '°'],
+    ['Flywheel 飛輪', Math.abs(fly) > 5, false, fly.toFixed(0) + ' 圈/秒'],
+    ['Orbit 轉盤', Math.abs(orbit) > 0.5, false, orbit.toFixed(0) + ' 圈/秒'],
+    ['Indexer 送球', Math.abs(idx) > 1, false, idx.toFixed(0) + ' 圈/秒'],
+  ];
+  document.getElementById('legend').innerHTML = items.map(([n, on, rev, v]) =>
+    `<div class="mech">${led(on, rev)}<span style="flex:1">${n}</span><span>${v}</span></div>`).join('');
+}
+
+const statusEl = document.getElementById('status');
+const _setEnabled = setEnabled;
+setEnabled = on => { _setEnabled(on); statusEl.classList.toggle('on', enabled); statusEl.textContent = enabled ? '啟用中' : '停用中'; };
+
+// 可以安裝成 App(Chrome/Edge 網址列右邊的「安裝」、手機的「加到主畫面」)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+build();
+refreshSourceUI();
+connectHal();
+connectNt();
+updateConn();
+</script>
+<script src="robotmap.js"></script>
+<script src="screen.js"></script>
+<script src="physics.js"></script>
+<script src="demo.js"></script>
+<script src="keyboard.js"></script>
+<script type="module" src="view3d.js"></script>
+</body>
+</html>

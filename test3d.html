@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>3D 測試</title>
+<style>
+body{margin:0;background:#0b0f14;color:#ddd;font:14px sans-serif}
+#v{position:relative;width:min(1280px,100vw);aspect-ratio:16/9}
+#bar{padding:6px}
+button{margin-right:4px}
+#tag{position:absolute;color:#3fb950;font-weight:bold;pointer-events:none;transform:translate(-50%,-100%)}
+</style></head><body>
+<div id="bar">
+<button data-c="chase">chase</button><button data-c="fpv">fpv</button><button data-c="top">top</button><button data-c="broadcast">broadcast</button>
+<label><input type="checkbox" id="auto"> 自動切換</label>
+<label><input type="checkbox" id="pause"> 暫停</label>
+<span id="fps"></span>
+</div>
+<div id="v"><div id="tag">▼9427</div></div>
+<script type="module">
+import './view3d.js';
+const V = window.View3D, el = document.getElementById('v');
+V.mount(el);
+document.querySelectorAll('button').forEach(b => b.onclick = () => V.setCamera(b.dataset.c));
+// 假資料
+// 假資料:中央 depot 整齊的一大塊+散落的球
+const balls = [];
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+for (let i = 0; i < 9; i++) for (let j = 0; j < 31; j++) balls.push({ x: 7.65 + i * 0.155, y: 1.7 + j * 0.155 });
+for (let i = 0; i < 150; i++) balls.push({ x: 0.5 + rnd() * 15.5, y: 0.3 + rnd() * 7.4 });
+// 官方場地載好 → 換成官方預放的球
+window.addEventListener('view3d-field-loaded', () => { balls.length = 0; for (const b of V.stagedFuel) balls.push(b); console.log('stagedFuel', V.stagedFuel.length, JSON.stringify(V.stagedFuel.slice(0, 3))); });
+const st = { cx: 6.5, cy: 4, R: 1.8, phi: 0 };
+window.T = { arm: null, turret: null, th: null, x: null, y: null };   // 手動覆寫用
+let sim = 0, last = 0, frames = 0, fpsT = 0, camI = 0, camT = last, nextShot = 0, flash = 0;
+const shots = [];
+let vt = 0;
+function loop() { frame(vt += 16.7); requestAnimationFrame(loop); }
+window.burst = n => { for (let i = 0; i < n; i++) frame(vt += 16.7); };
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!document.getElementById('pause').checked) sim += dt;
+  const phi = sim * 0.45;
+  let x = st.cx + st.R * Math.cos(phi), y = st.cy + st.R * Math.sin(phi), th = -phi - Math.PI / 2;
+  if (T.x != null) x = T.x; if (T.y != null) y = T.y; if (T.th != null) th = T.th;
+  // 連發(每秒 8 顆)射向藍色 hub
+  if (sim > nextShot && Math.sin(sim * 0.5) > -0.2) { nextShot = sim + 0.125; shots.push({ x0: x, y0: y, x1: 4.63, y1: 4.035, t: 0, T: 0.9, z0: 0.7, zEnd: 1.9, h: 1.3, score: 1 }); }
+  for (const s of shots) s.t += dt;
+  // 進球 → 從 hub 頂噴出去
+  for (const s of shots) if (s.t >= s.T && s.score) {
+    flash = 0.6;
+    const a = rnd() * Math.PI * 2, d = 1 + rnd() * 2.5;
+    shots.push({ x0: 4.63, y0: 4.035, x1: 4.63 + Math.cos(a) * d, y1: 4.035 + Math.sin(a) * d, t: 0, T: 1.0, z0: 2.1, zEnd: 0.075, h: 0.9 });
+  }
+  for (let i = shots.length - 1; i >= 0; i--) if (shots[i].t >= shots[i].T) shots.splice(i, 1);
+  flash = Math.max(0, flash - dt);
+  const snap = {
+    pose: { x, y, th },
+    arm: T.arm != null ? T.arm : (Math.sin(sim * 0.8) * 0.5 + 0.5),
+    turret: T.turret != null ? T.turret : Math.sin(sim * 0.6) * 1.2,
+    fly: Math.sin(sim * 0.3) > -0.3 ? 70 : 0, flySpin: sim * 60, orbitSpin: sim * 2,
+    rollerDir: [1, 0, -1][Math.floor(sim / 3) % 3], held: T.held != null ? T.held : Math.round(20 + 20 * Math.sin(sim * 0.3)),
+    fieldBalls: balls.filter(b => Math.hypot(b.x - x, b.y - y) > 0.6),
+    shots: shots.map(s => { const k = s.t / s.T; return { x: s.x0 + (s.x1 - s.x0) * k, y: s.y0 + (s.y1 - s.y0) * k, t: s.t, T: s.T, z0: s.z0, zEnd: s.zEnd, h: s.h }; }),
+    enabled: Math.floor(sim / 5) % 2 === 0,
+    hubs: [{ x: 4.63, y: 4.035, c: '#2f81f7', flash }, { x: 11.91, y: 4.035, c: '#f85149', flash: 0 }],
+    wheelL: (st.R + 0.3) * phi, wheelR: (st.R - 0.3) * phi, time: now,
+  };
+  V.render(snap);
+  const p = V.project(x, y, 1.0), tag = document.getElementById('tag');
+  tag.style.display = p.visible ? '' : 'none'; tag.style.left = p.x + 'px'; tag.style.top = p.y + 'px';
+  if (document.getElementById('auto').checked && now - camT > 4000) { camT = now; V.setCamera(['chase', 'fpv', 'top', 'broadcast'][++camI % 4]); }
+  frames++; if (now - fpsT > 1000) { document.getElementById('fps').textContent = frames + ' fps'; frames = 0; fpsT = now; }
+}
+requestAnimationFrame(loop);
+</script>
+</body></html>

@@ -1,0 +1,17 @@
+// 模擬搖桿專用的 Gradle 初始化腳本(不會改到 LEO 專案本身)。
+// 用法:gradlew simulateJava -I C:\FRC\VirtualJoystick\sim-ws.gradle
+//
+// 做兩件事:
+//   1. 打開 WebSocket 模擬伺服器(port 3300),網頁搖桿靠它把搖桿數值、啟用/停用送進模擬器
+//   2. 關掉 WPILib 內建的模擬視窗 —— 它的 Driver Station 每一幀都會把搖桿歸零,會蓋掉網頁送來的值
+allprojects {
+    afterEvaluate { p ->
+        def wpi = p.extensions.findByName('wpi')
+        if (wpi != null) {
+            wpi.sim.addWebsocketsServer().defaultEnabled = true
+            wpi.sim.halExtensions.each { ext ->
+                if (ext.name == 'Sim GUI') { ext.defaultEnabled = false }
+            }
+        }
+    }
+}

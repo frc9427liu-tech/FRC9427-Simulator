@@ -1,0 +1,5 @@
+app/node_modules/
+app/dist/
+node_modules/
+*.zip
+*.log

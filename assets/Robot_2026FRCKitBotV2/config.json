@@ -1,0 +1,77 @@
+{
+  "name": "2026 KitBot",
+  "locales": {
+    "en-US": "2026 KitBot",
+    "es-419": "KitBot 2026",
+    "fr": "KitBot 2026",
+    "nl": "KitBot 2026",
+    "pt-BR": "KitBot 2026",
+    "ro": "KitBot 2026",
+    "tr": "2026 KitBot",
+    "ru": "KitBot 2026",
+    "kk": "2026 KitBot",
+    "he": "KitBot 2026",
+    "ar": "KitBot 2026",
+    "hi": "2026 KitBot",
+    "zh-CN": "2026 KitBot",
+    "zh-TW": "2026 KitBot"
+  },
+  "isFTC": false,
+  "rotations": [
+    {
+      "axis": "x",
+      "degrees": 90
+    },
+    {
+      "axis": "z",
+      "degrees": 90
+    }
+  ],
+  "position": [
+    -0.3,
+    0,
+    0.05
+  ],
+  "cameras": [
+    {
+      "name": "Camera",
+      "locales": {
+        "en-US": "Camera",
+        "es-419": "Cámara",
+        "fr": "Caméra",
+        "nl": "Camera",
+        "pt-BR": "Câmera",
+        "ro": "Cameră",
+        "tr": "Kamera",
+        "ru": "Камера",
+        "kk": "Камера",
+        "he": "מצלמה",
+        "ar": "كاميرا",
+        "hi": "कैमरा",
+        "zh-CN": "相机",
+        "zh-TW": "攝影機"
+      },
+      "rotations": [
+        {
+          "axis": "y",
+          "degrees": -25
+        },
+        {
+          "axis": "z",
+          "degrees": 180
+        }
+      ],
+      "position": [
+        0.35,
+        0,
+        0.5
+      ],
+      "resolution": [
+        960,
+        720
+      ],
+      "fov": 90
+    }
+  ],
+  "components": []
+}

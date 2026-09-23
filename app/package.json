@@ -1,0 +1,87 @@
+{
+  "name": "frc-simulator",
+  "productName": "9427 FRC 模擬器",
+  "version": "2.0.0",
+  "description": "FRC 機器人模擬器:打開任何 WPILib 專案,用搖桿操作、看 3D 畫面",
+  "main": "main.js",
+  "author": "FRC 9427",
+  "private": true,
+  "repository": "https://github.com/frc9427liu-tech/FRC9427-Simulator",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "devDependencies": {
+    "electron": "^44.4.4",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "tw.frc9427.frc-simulator",
+    "productName": "9427 FRC 模擬器",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "start.html",
+      "splash.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "web",
+        "filter": [
+          "*.html",
+          "*.js",
+          "*.json",
+          "*.webmanifest",
+          "*.ico",
+          "*.png",
+          "*.svg",
+          "*.gradle",
+          "*.md",
+          "!server.js",
+          "!app/**",
+          "!node_modules/**",
+          "assets/**"
+        ]
+      },
+      {
+        "from": "..",
+        "to": "server",
+        "filter": [
+          "server.js"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "../icon-512.png",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "9427 FRC 模擬器",
+      "artifactName": "FRC9427-Simulator-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "frc9427liu-tech",
+        "repo": "FRC9427-Simulator",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

@@ -9,6 +9,8 @@ import { RenderPass } from './RenderPass.js';
 import { GTAOPass } from './GTAOPass.js';
 import { UnrealBloomPass } from './UnrealBloomPass.js';
 import { OutputPass } from './OutputPass.js';
+import { ShaderPass } from './ShaderPass.js';
+import { CopyShader } from './CopyShader.js';
 
 // ---- 常數 ----
 const FW = 16.54, FH = 8.07;          // 場地大小(公尺)
@@ -1251,23 +1253,25 @@ function resize(w, h) {
 }
 
 // ---- 畫質:高 = 環境遮蔽 + 光暈、中 = 只有光暈、低 = 都不開(最省) ----
-let composer = null, gtaoPass = null, bloomPass = null, qualityPinned = false;
+let composer = null, gtaoPass = null, bloomPass = null, qualityPinned = false, fxTest = null;
 let quality = (() => { try { return localStorage.getItem('sim-quality') || 'high'; } catch { return 'high'; } })();
 function setupComposer() {
   if (composer) { composer.dispose(); composer = null; }
-  // ⚠️ 2026-09-23 用顯示卡實測:只開光暈(Bloom)畫面上半部也整片黑(推測場館燈的超亮數值讓後製算出 NaN)。
-  // 修好之前後製全部關掉,畫面跟之前一樣;燈光光束(不是後製)照常有
-  return;
-  // eslint-disable-next-line no-unreachable
+  const o = fxTest || { gtao: true };        // fxTest 只有除錯時用(View3D._fx)
   if (quality === 'low') return;
   // 多重取樣的 render target:用後製時內建反鋸齒會失效,要自己開 MSAA
-  const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: 4 });
+  const rt = new THREE.WebGLRenderTarget(W, H, { type: o.type === 'float' ? THREE.FloatType : THREE.HalfFloatType, samples: o.samples ?? 4 });
   composer = new EffectComposer(renderer, rt);
+  // ⚠️ 黑屏真正的原因(2026-09-23 用顯示卡實測):MSAA 畫布「只能畫一次」。
+  //    three.js 每次把 MSAA 畫布整理(resolve)成一般貼圖之後,就把 MSAA 那份內容丟掉了。
+  //    光暈最後一步是「疊加」回同一張畫布 → 疊在一張已經被丟掉的空白上 → 整片黑,只剩光暈的亮點。
+  //    解法:第二張畫布不要 MSAA,場景畫完先複製過去,光暈 / 環境遮蔽都在那張上面疊。
+  if (o.copy !== false) composer.renderTarget2.samples = 0;
   composer.setPixelRatio(curPR);
   composer.setSize(W, H);
   composer.addPass(new RenderPass(scene, camera));
-  // ⚠️ 2026-09-23 使用者實測:開 GTAO 畫面上半部整片變黑(大場景的深度範圍讓 AO 算錯)→ 先關掉,修好再開
-  if (quality === 'high' && false) {
+  if (o.copy !== false) composer.addPass(new ShaderPass(CopyShader));
+  if (quality === 'high' && o.gtao) {
     // 環境遮蔽:角落、縫隙、車底、HUB 腳下自然變暗(立體感主要來源)
     gtaoPass = new GTAOPass(scene, camera, W, H);
     gtaoPass.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples: 12 });
@@ -1276,8 +1280,11 @@ function setupComposer() {
     composer.addPass(gtaoPass);
   } else gtaoPass = null;
   // 光暈:只有很亮的東西(場館燈、HUB 燈、RSL、飛輪)會溢光
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(W, H), 0.45, 0.55, 0.92);
-  composer.addPass(bloomPass);
+  if (o.bloom !== false) {
+    // 門檻 1.0:只有真的比白色還亮的(會發光的東西)才溢光,白色 HUB 頂不會被糊掉
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(W, H), 0.35, 0.55, 1.0);
+    composer.addPass(bloomPass);
+  } else bloomPass = null;
   composer.addPass(new OutputPass());       // 色調映射(ACES)+ sRGB
 }
 
@@ -1596,7 +1603,28 @@ window.View3D = {
     camBlend = 0;
   },
   _info() { return renderer && { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, pr: curPR, progs: renderer.info.programs.length }; },   // 除錯用
-  _cam(p, t) { debugCam = p ? { p: new THREE.Vector3(...p), t: new THREE.Vector3(...t) } : null; },   // 除錯用:固定鏡頭
+  // 除錯用:把場景畫進 32 位元浮點畫布,數有幾個像素是 NaN / 無限大 / 超過半精度上限(後製黑屏的嫌疑犯)
+  _fx(o) { fxTest = o; setupComposer(); },   // 除錯用:測試後製 {type:'half'|'float', samples, gtao, bloom},null = 關
+  _probe() {
+    const w = 400, h = Math.round(400 * H / W);
+    const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType });
+    renderer.setRenderTarget(rt); renderer.render(scene, camera); renderer.setRenderTarget(null);
+    const px = new Float32Array(w * h * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, w, h, px);
+    rt.dispose();
+    const st = { w, h, nan: 0, inf: 0, over: 0, max: 0, nanTop: 0, samples: [] };
+    for (let i = 0; i < w * h; i++) {
+      const row = Math.floor(i / w);          // 0 = 最下面
+      for (let c = 0; c < 4; c++) {
+        const v = px[i * 4 + c];
+        if (Number.isNaN(v)) { st.nan++; if (row > h / 2) st.nanTop++; if (st.samples.length < 8) st.samples.push([i % w, row, c]); }
+        else if (!Number.isFinite(v)) st.inf++;
+        else { if (Math.abs(v) > 65504) st.over++; if (c < 3) st.max = Math.max(st.max, v); }
+      }
+    }
+    return st;
+  },
+  _cam(p, t) { debugCam =p ? { p: new THREE.Vector3(...p), t: new THREE.Vector3(...t) } : null; },   // 除錯用:固定鏡頭
   _sim(v) { for (const o of [R.turret, R.intake, R.held]) o.visible = v; },   // 除錯用:藏自己加的零件
   _pr(v) { curPR = v; renderer.setPixelRatio(v); resize(W, H); },     // 除錯用:手動設解析度
   project(x, y, h) {

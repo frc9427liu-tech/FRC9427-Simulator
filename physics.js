@@ -3,7 +3,7 @@
 //  以前:車子出力多少就立刻跑多快、球照固定 1 秒的假軌跡飛、碰撞用圓形大概擋一下。
 //  現在:
 //    - 底盤有質量:馬達特性 + 加速度上限(輪胎抓地力)+ 原地轉的輪胎摩擦
-//    - 車子是方形(不是圓形),撞到牆、HUB、TOWER 會被擋下來,速度也會被吃掉
+//    - 車子是方形(不是圓形),撞到牆、HUB、TOWER、TRENCH 底座會被擋下來,速度也會被吃掉
 //    - 地上的球會滾、有摩擦力、會互相推擠、被車撞會噴出去
 //    - 射出去的球有重力 + 空氣阻力,飛輪轉越快射越遠,車子邊開邊射球也會帶著車速
 //    - HUB 照官方模型:入口 1.83 m 高、邊長 1.19 m;射太遠會被 HUB 後面的網子擋下來掉進去;
@@ -27,11 +27,18 @@ const PHYS = (() => {
   const OPEN_R = 0.58;             // HUB 頂部漏斗入口(六角形,用圓近似)
   const NET = { x0: 0.185, z0: 1.66, x1: 0.855, z1: 3.02, half: 0.71 };  // HUB 後方的網子(相對 HUB 中心,往中場方向)
   const TOWER_H = 1.99;
-  // 障礙物(軸對齊方框):HUB 本體 + 兩座 TOWER
+  // TRENCH:BUMP 外側的矮隧道。車可以從底下鑽過(橫桿離地 0.57 m),但橫桿兩端的底座(裙板)是實心的
+  // 官方模型量的:底座 1.19 × 0.30 m、高 0.50 m,在 HUB 中心線 ±(2.46~2.76) m
+  const TRENCH_H = 0.50;
+  // 障礙物(軸對齊方框):HUB 本體 + 兩座 TOWER + 四個 TRENCH 底座
   const OBST = [
     ...HUBS.map(h => ({ x0: h.x - HUB_HALF, y0: h.y - HUB_HALF, x1: h.x + HUB_HALF, y1: h.y + HUB_HALF, h: HUB_TOP, hub: h })),
     { x0: 0, y0: 3.695, x1: 1.14, y1: 4.945, h: TOWER_H },                              // 藍方 TOWER
     { x0: FIELD_W - 1.14, y0: FIELD_H - 4.945, x1: FIELD_W, y1: FIELD_H - 3.695, h: TOWER_H },   // 紅方 TOWER(點對稱)
+    ...HUBS.flatMap(h => [
+      { x0: h.x - HUB_HALF, x1: h.x + HUB_HALF, y0: h.y + 2.455, y1: h.y + 2.755, h: TRENCH_H },
+      { x0: h.x - HUB_HALF, x1: h.x + HUB_HALF, y0: h.y - 2.755, y1: h.y - 2.455, h: TRENCH_H },
+    ]),
   ];
   // BUMP:HUB 左右兩側的斜坡(官方模型量的)
   const BUMPS = HUBS.flatMap(h => [

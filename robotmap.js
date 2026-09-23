@@ -318,8 +318,6 @@ const ROBOT = (() => {
   try { qSel.value = localStorage.getItem('sim-quality') || 'high'; } catch {}
   qSel.onchange = () => { if (window.View3D && View3D.setQuality) View3D.setQuality(qSel.value); };
   bar.insertBefore(qSel, helpBtn);
-  qSel.style.display = 'none';     // 後製特效還沒修好(會黑屏),先藏起來
-  try { localStorage.removeItem('sim-quality'); } catch {}
   const sw = document.createElement('button');
   sw.id = 'switchProj'; sw.textContent = '📂 換專案'; sw.style.display = 'none';
   sw.onclick = () => { if (confirmSwitch()) fetch('/api/switch-project', { method: 'POST' }).catch(() => {}); };

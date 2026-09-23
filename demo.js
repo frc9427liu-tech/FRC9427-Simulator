@@ -47,7 +47,7 @@
     if (now < tapUntil) { p.d = tapDir > 0 ? 1 : 0; p.u = tapDir < 0 ? 1 : 0; return false; }
     p.d = p.u = 0;
     if (now < nextTap) return false;
-    const a = ROBOT.armRaw();
+    const a = ROBOT.armPhys();   // 實際手臂位置(有擋塊),不是程式數值
     if (a >= lo && a <= hi) return true;
     const err = (lo + hi) / 2 - a;
     tapDir = Math.sign(err);                       // ▼ 讓位置變大、▲ 變小

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新手教學 · 9427 FRC 模擬器</title>
+<style>
+  :root { --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --line: #30363d; --text: #e6edf3; --dim: #8b98a5;
+          --accent: #2f81f7; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.75 "Microsoft JhengHei", "Segoe UI", sans-serif; }
+  .wrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; max-width: 1080px; margin: 0 auto; padding: 28px 24px 80px; }
+  @media (max-width: 800px) { .wrap { grid-template-columns: 1fr; } nav { position: static !important; } }
+  nav { position: sticky; top: 20px; align-self: start; font-size: 14px; }
+  nav b { display: block; color: var(--dim); font-size: 12px; letter-spacing: .05em; margin-bottom: 8px; }
+  nav a { display: block; color: var(--text); text-decoration: none; padding: 4px 10px; border-radius: 6px; border-left: 2px solid transparent; }
+  nav a:hover { background: var(--panel); border-left-color: var(--accent); }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin-bottom: 28px; }
+  h2 { font-size: 21px; margin: 44px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  a { color: #58a6ff; }
+  code, kbd { font-family: Consolas, monospace; font-size: 13px; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 5px; }
+  kbd { display: inline-block; min-width: 24px; text-align: center; padding: 0 7px; border-radius: 6px; background: var(--panel2);
+        border: 1px solid var(--line); border-bottom-width: 3px; font-weight: 700; }
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 12px 0; }
+  ol.steps > li { counter-increment: s; position: relative; padding: 10px 14px 10px 52px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 14px; top: 10px; width: 26px; height: 26px; border-radius: 50%;
+        background: var(--accent); color: #fff; font-weight: 800; font-size: 14px; display: grid; place-items: center; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  .box { border-radius: 10px; padding: 10px 14px; margin: 12px 0; border: 1px solid; }
+  .box.tip { background: #2f81f714; border-color: #2f81f755; }
+  .box.warn { background: #d2992214; border-color: #d2992266; }
+  .box.bad { background: #f8514914; border-color: #f8514966; }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font-size: 13px; white-space: nowrap; }
+  .pill.g { background: var(--ok); color: #fff; border-color: var(--ok); }
+  .pill.r { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .pill.p { background: linear-gradient(135deg, #8957e5, #2f81f7); color: #fff; border: 0; }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; margin: 8px 0; }
+  details summary { cursor: pointer; font-weight: 700; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <b>目錄</b>
+  <a href="#install">1. 第一次安裝</a>
+  <a href="#open">2. 開啟專案</a>
+  <a href="#screen">3. 畫面介紹</a>
+  <a href="#control">4. 怎麼操作</a>
+  <a href="#first">5. 第一次開車(LEO)</a>
+  <a href="#other">6. 跑別人的程式</a>
+  <a href="#faq">7. 常見問題</a>
+  <a href="#update">8. 更新</a>
+</nav>
+<main>
+  <h1>📖 新手教學(電腦操作)</h1>
+  <div class="sub">9427 FRC 模擬器:不用接機器人,在電腦上跑機器人程式、用搖桿開車、看 3D 場地。</div>
+
+  <div class="box bad">🛑 <b>緊急停止</b>:鍵盤按 <kbd>空白鍵</kbd> 或 <kbd>Enter</kbd>,機器人立刻停用。跟真的 Driver Station 一樣,養成習慣。</div>
+
+  <h2 id="install">1. 第一次安裝</h2>
+  <ol class="steps">
+    <li><b>裝 WPILib 2026</b>(寫 FRC 程式本來就要裝的那個,有 VS Code 的)。已經能用 VS Code 部署程式到機器人的電腦,就已經裝好了。<br>
+        沒裝的話:到 <a href="https://github.com/wpilibsuite/allwpilib/releases" target="_blank">WPILib 下載頁</a> 下載 <code>WPILib_Windows-2026.x.x.iso</code> → 雙擊打開 → 執行 <code>WPILibInstaller.exe</code> → 一路下一步。</li>
+    <li><b>下載模擬器</b>:<a href="https://github.com/frc9427liu-tech/FRC9427-Simulator/releases/latest" target="_blank">GitHub 下載頁</a> → 點 <code>FRC9427-Simulator-Setup-版本.exe</code> 下載。</li>
+    <li><b>雙擊安裝檔</b>。不用管理員權限,幾秒就裝好,桌面會出現「9427 FRC 模擬器」。</li>
+  </ol>
+  <div class="box warn">⚠️ 如果跳出藍色視窗「<b>Windows 已保護您的電腦</b>」:按「<b>其他資訊</b>」→「<b>仍要執行</b>」。
+    這是因為我們沒有花錢買程式碼簽章,不是病毒。</div>
+  <div class="box tip">💡 第一次打開比較慢(約 10~15 秒,防毒軟體在掃描新程式),之後大約 2 秒。</div>
+
+  <h2 id="open">2. 開啟專案</h2>
+  <ol class="steps">
+    <li>雙擊桌面「<b>9427 FRC 模擬器</b>」,會看到起始畫面。</li>
+    <li>按「<b>📂 開啟機器人專案資料夾</b>」,選你的機器人程式資料夾。<br>
+        <b>要選哪個?</b> 就是你用 VS Code「開啟資料夾」打開的那個,裡面會有 <code>gradlew.bat</code>、<code>build.gradle</code>、<code>src</code>。<br>
+        開過的專案會出現在右邊「最近開過的專案」,下次直接點就好。</li>
+    <li>等啟動畫面跑完:它會顯示現在在做什麼 ——「編譯你的程式」「程式沒改過,不用重新編譯 ✓」「機器人程式開機中」。
+        第一次開約 30 秒,之後通常 5~10 秒。</li>
+    <li>看到場地畫面就好了。</li>
+  </ol>
+  <div class="box tip">💡 程式改完想重新測:按畫面上的「📂 換專案」→ 再點同一個專案,就會重新編譯你改過的程式。</div>
+
+  <h2 id="screen">3. 畫面介紹</h2>
+  <h3>最上面那排</h3>
+  <table>
+    <tr><th style="width:210px">按鈕</th><th>做什麼</th></tr>
+    <tr><td><span class="pill">● 模擬器</span> <span class="pill">● 儀表板</span></td><td>綠燈 = 有連上。模擬器沒亮 = 還在開、或被別的視窗佔用(見<a href="#faq">常見問題</a>)</td></tr>
+    <tr><td><span class="pill">遙控</span> <span class="pill">自動</span> <span class="pill">測試</span></td><td>跟 Driver Station 一樣的模式。平常用「遙控」;想測自動程式就選「自動」再啟用</td></tr>
+    <tr><td><span class="pill">🔒 鎖定模式</span></td><td>用滑鼠時:按一下按鈕就「一直按著」,再按一下才放開(滑鼠一次只能按一個,要同時按兩個就用這個)</td></tr>
+    <tr><td><span class="pill">✏️ 編輯按鈕</span></td><td>刪掉自己新增的按鈕</td></tr>
+    <tr><td><span class="pill g">啟用</span> / <span class="pill r">停用</span></td><td><b>一定要先按啟用,機器人才會動</b>(跟真的一樣)</td></tr>
+  </table>
+  <h3>模擬畫面上方</h3>
+  <table>
+    <tr><th style="width:210px">按鈕</th><th>做什麼</th></tr>
+    <tr><td><span class="pill">3D</span> <span class="pill">2D 俯視</span></td><td>切換 3D 立體 / 從上往下看的平面圖(電腦比較慢就用 2D)</td></tr>
+    <tr><td><span class="pill">跟車</span> <span class="pill">第一人稱</span> <span class="pill">全場</span> <span class="pill">轉播</span></td><td>鏡頭角度。「跟車」像瑪利歐賽車;「轉播」像比賽直播</td></tr>
+    <tr><td><span class="pill p">🎬 展示模式</span></td><td>虛擬駕駛自己開:吸球 → 對準 → 射球(只有 LEO 有)。碰任何按鍵就停</td></tr>
+    <tr><td><span class="pill">📂 換專案</span></td><td>回到起始畫面,開別的專案</td></tr>
+    <tr><td><span class="pill">⚙️ 機構設定</span></td><td>告訴模擬器哪個數值是左輪、手臂、飛輪…(跑別人的程式要用,見<a href="#other">第 6 節</a>)</td></tr>
+    <tr><td><span class="pill">↺ 回起點</span></td><td>機器人和場上的球全部重來</td></tr>
+    <tr><td><span class="pill">⛶ 全螢幕</span></td><td>只放大模擬畫面(展示用),<kbd>Esc</kbd> 離開。<kbd>F11</kbd> 是整個視窗全螢幕</td></tr>
+  </table>
+  <h3>畫面上會出現的東西</h3>
+  <ul>
+    <li><b>左上角</b>:模式、車上有幾顆球、進球數、沒進數</li>
+    <li><b>地上的圈圈(落點預測)</b>:飛輪一轉就出現。<span style="color:var(--ok)">綠色 = 射得進</span>,<span style="color:var(--warn)">橘色 = 射不進</span>,左上角會寫要往前還往後幾公尺</li>
+    <li><b>紅字 ⚠️ 超過行程</b>:手臂或砲台轉過頭了。真的機器人這時候會撞壞 → 程式要開軟限位</li>
+    <li><b>右上角小燈</b>:RSL 燈,停用時恆亮、啟用時閃</li>
+    <li><b>下方側面圖、機構燈</b>:手臂角度、飛輪轉速、每個馬達現在在做什麼</li>
+  </ul>
+
+  <h2 id="control">4. 怎麼操作</h2>
+  <p>有 4 種方式,可以混著用:</p>
+  <div class="two">
+    <div class="box tip"><b>🖱️ 滑鼠</b><br>拖右邊的搖桿圓圈、點按鈕、拉 LT/RT 扳機。<br>一次只能按一個 → 要同時按就開 🔒 鎖定模式,或用鍵盤。</div>
+    <div class="box tip"><b>⌨️ 鍵盤(最推薦)</b><br>可以同時按好幾個鍵,一手開車一手射球。按鍵表在下面,右邊搖桿上方也可以展開看。</div>
+    <div class="box tip"><b>🎮 Xbox 手把</b><br>USB 或藍牙接上 → <b>在畫面上按一下手把任一顆鍵</b>(瀏覽器規定)→ 第 1 支是駕駛手、第 2 支是操作手。每個搖桿右上角的選單可以換。</div>
+    <div class="box tip"><b>📱 手機 / 平板</b><br>手機連<b>同一個 Wi-Fi</b>(或連筆電的行動熱點),打開網頁最下面寫的網址。一次只能一個畫面控制,用手機時先關掉電腦上的。</div>
+  </div>
+  <h3>⌨️ 鍵盤按鍵(LEO)</h3>
+  <table>
+    <tr><th colspan="2">駕駛手</th><th colspan="2">操作手</th></tr>
+    <tr><td><kbd>W</kbd> <kbd>S</kbd></td><td>前進 / 後退</td><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>手臂收起 / 放下</td></tr>
+    <tr><td><kbd>A</kbd> <kbd>D</kbd></td><td>左轉 / 右轉</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>砲台左右轉</td></tr>
+    <tr><td>按住 <kbd>Shift</kbd></td><td>慢速(精細對位)</td><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>吸球 / 吐球</td></tr>
+    <tr><td></td><td></td><td><kbd>R</kbd></td><td>飛輪 開 / 關</td></tr>
+    <tr><td></td><td></td><td><kbd>F</kbd></td><td>發射(飛輪要先開)</td></tr>
+    <tr><td></td><td></td><td><kbd>G</kbd></td><td>只轉 Orbit</td></tr>
+    <tr><td><kbd>空白</kbd> <kbd>Enter</kbd></td><td><b>緊急停止</b></td><td></td><td></td></tr>
+  </table>
+  <h3>🎮 Xbox 手把 / 螢幕搖桿(LEO 的按鍵)</h3>
+  <table>
+    <tr><th>駕駛手(第 1 支)</th><th>操作手(第 2 支)</th></tr>
+    <tr><td>左搖桿上下 = 左輪<br>右搖桿上下 = 右輪(坦克式)</td>
+        <td>十字 ▲▼ = 手臂收起 / 放下<br>LB = 吸球、X = 吐球<br>左搖桿左右 = 砲台<br>RT = 飛輪、<b>RT + A = 發射</b><br>RB = 只轉 Orbit</td></tr>
+  </table>
+  <div class="box tip">💡 按鍵是照 LEO 程式寫的。別的專案按鍵不一樣,要看那份程式的 <code>RobotContainer</code> / <code>Robot.java</code>。搖桿下面「＋ 新增按鈕」可以自己加按鈕、取名字。</div>
+
+  <h2 id="first">5. 第一次開車(LEO)一步一步</h2>
+  <ol class="steps">
+    <li>右上角按 <span class="pill g">啟用</span>。</li>
+    <li>按住 <kbd>W</kbd> 往前開,<kbd>A</kbd> <kbd>D</kbd> 轉彎。車子有重量,起步會加速、放開會滑一下。</li>
+    <li>按 <kbd>↓</kbd> <b>一下下</b>把手臂放下(側面圖會看到手臂變平)。按太久會跳紅字「超過行程」—— 因為 LEO 的軟限位還沒開。</li>
+    <li>按住 <kbd>Q</kbd> 開去場中間的球海,球會一顆顆吸進來(左上角「車上」數字會增加)。</li>
+    <li>按 <kbd>↑</kbd> 一下下收手臂,開到 HUB 的<b>斜前方</b>大約 4 公尺(正前方被 TOWER 擋住)。</li>
+    <li>按 <kbd>R</kbd> 開飛輪 → 地上出現落點圈。用 <kbd>A</kbd> <kbd>D</kbd> 或 <kbd>←</kbd> <kbd>→</kbd> 對準,前後移動直到圈變<b>綠色</b>。</li>
+    <li><b>停穩</b>之後按住 <kbd>F</kbd> 連發 🎯。開車中射球會帶著車速飛歪(跟真的一樣)。</li>
+    <li>玩完按 <kbd>空白鍵</kbd> 停用,或直接關視窗(模擬器會跟著關)。</li>
+  </ol>
+
+  <h2 id="other">6. 跑別人的程式(不是 LEO)</h2>
+  <ol class="steps">
+    <li>起始畫面「開啟機器人專案資料夾」選他們的專案。</li>
+    <li>第一次開會自動跳出 <b>⚙️ 機構設定</b>(之後可以從畫面上方打開)。</li>
+    <li>先關掉設定視窗 → 按啟用 → 動一動搖桿 → 再打開 ⚙️ 機構設定。</li>
+    <li>每一列選「數值來源」:右邊「目前數值」會跟著跳的就是選對了。
+        <ul>
+          <li><b>NetworkTables</b>:程式裡 <code>SmartDashboard.putNumber(...)</code> 或 AdvantageKit 發的數字</li>
+          <li><b>模擬硬體</b>:程式裡的 SPARK MAX / Talon FX / PWM 馬達(模擬時會自己出現)</li>
+          <li>用不到的機構選「沒有這個機構」</li>
+        </ul></li>
+    <li>填倍率:出力是電壓的話填 0.0833(= 1/12);飛輪是 RPM 的話填 0.01667(= 1/60);方向相反就填負數。</li>
+    <li>按 💾 儲存 → 存成那個專案裡的 <code>.robot-sim.json</code>,下次打開自動套用,也可以 commit 給隊友。</li>
+  </ol>
+  <div class="box warn">⚠️ 目前只支援<b>坦克式(左右輪)</b>底盤;swerve 還沒做。</div>
+
+  <h2 id="faq">7. 常見問題</h2>
+  <details><summary>按搖桿機器人不動</summary>
+    <ul><li>還沒按右上角「啟用」(最常見)</li>
+        <li>上面「模擬器」燈沒亮 → 見下一題</li>
+        <li>別的專案:⚙️ 機構設定還沒設,模擬器不知道哪個是輪子</li></ul></details>
+  <details><summary>顯示「另一個搖桿網頁正在控制模擬器」</summary>
+    模擬器一次只讓<b>一個</b>畫面控制。把其他開著的模擬器視窗、瀏覽器分頁、手機上的畫面關掉,這個畫面會自己接上。</details>
+  <details><summary>開專案後跳「模擬器啟動失敗(程式可能編譯不過)」</summary>
+    你的程式有錯誤。視窗裡會列出錯誤訊息最後幾行;用 VS Code 打開同一個專案按 Build 看紅字,改好再開。</details>
+  <details><summary>雙擊之後好像沒反應</summary>
+    第一次開要 10~15 秒(防毒掃描),等一下。還是沒有:看工作列有沒有 9427 的圖示,點它。</details>
+  <details><summary>找不到 WPILib</summary>
+    模擬器要用 WPILib 附的 Java 來跑程式,先照<a href="#install">第 1 節</a>裝 WPILib 2026。</details>
+  <details><summary>畫面很卡</summary>
+    切成「2D 俯視」;或筆電插電、關掉其他程式。有獨立顯卡的筆電,Windows 設定 → 顯示器 → 顯示卡 → 把模擬器設成「高效能」。</details>
+  <details><summary>3D 畫面跟真的機器人長得不一樣</summary>
+    場地是 FRC 官方模型;機器人目前用官方 KitBot 加上砲台和手臂。之後會換成隊上的 CAD。</details>
+
+  <h2 id="update">8. 更新</h2>
+  <p>不用重新下載。軟體打開時會自己檢查新版 → 背景下載 → 跳出「新版本已經下載好了」:</p>
+  <ul>
+    <li>「<b>現在重開更新</b>」:馬上更新(幾秒鐘)</li>
+    <li>「<b>等一下</b>」:繼續用,關掉軟體時自動裝好</li>
+  </ul>
+  <p style="color:var(--dim);margin-top:40px">FRC 9427 · 有問題找程式組 · 原始碼 <a href="https://github.com/frc9427liu-tech/FRC9427-Simulator" target="_blank">GitHub</a></p>
+</main>
+</div>
+</body>
+</html>

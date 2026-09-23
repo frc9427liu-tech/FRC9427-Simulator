@@ -197,6 +197,18 @@ function showStart() {
   startWin.loadFile(path.join(__dirname, 'start.html'));
 }
 
+// 📖 新手教學(help.html,跟網頁檔放一起,由內建伺服器提供)
+let helpWin = null;
+ipcMain.handle('open-help', () => {
+  if (helpWin && !helpWin.isDestroyed()) { helpWin.show(); helpWin.focus(); return; }
+  helpWin = new BrowserWindow({ width: 1100, height: 820, title: '新手教學 · ' + TITLE, backgroundColor: '#0d1117', autoHideMenuBar: true,
+                                icon: path.join(WEB_DIR, 'icon.ico') });
+  helpWin.on('page-title-updated', e => e.preventDefault());
+  helpWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  helpWin.on('closed', () => { helpWin = null; });
+  helpWin.loadFile(path.join(WEB_DIR, 'help.html'));
+});
+
 ipcMain.handle('recents', () => recents());
 ipcMain.handle('remove-recent', (_e, dir) => { removeRecent(dir); return recents(); });
 ipcMain.handle('pick-folder', async () => {

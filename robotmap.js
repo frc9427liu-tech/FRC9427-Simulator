@@ -63,6 +63,22 @@ const ROBOT = (() => {
   const m = id => cfg.mechanisms[id] || {};
   const val = id => raw(m(id).sig) * (m(id).scale ?? 1);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // 手臂擋塊模型(armPhys / armFrac / armOver 共用,一幀可能被叫好幾次,同一個數值不重複算)
+  const arm = { phys: null, last: null, pushT: -1e9 };
+  function armStep() {
+    const a = m('arm');
+    if (!a.sig) return arm;
+    const lo = Math.min(a.up ?? 0, a.down ?? 10), hi = Math.max(a.up ?? 0, a.down ?? 10);
+    const r = raw(a.sig);
+    if (arm.phys === null) { arm.phys = clamp(r, lo, hi); arm.last = r; return arm; }
+    const d = r - arm.last;
+    if (d === 0) return arm;
+    arm.last = r;
+    const want = arm.phys + d;
+    arm.phys = clamp(want, lo, hi);
+    if (want !== arm.phys) arm.pushT = performance.now();     // 想轉出行程 = 正在頂擋塊
+    return arm;
+  }
 
   const api = {
     get config() { return cfg; }, get project() { return project; },
@@ -70,11 +86,14 @@ const ROBOT = (() => {
     driveL: () => clamp(val('driveL'), -1, 1),
     driveR: () => clamp(val('driveR'), -1, 1),
     armRaw: () => raw(m('arm').sig),
+    // 手臂「實際」位置(有機構擋塊):程式的數值跑出行程時,真的手臂早就卡在底了。
+    // 以前直接用程式數值 → 手臂被按到 67 圈後,要往回轉 57 圈畫面上才開始動(不真實)。
+    // 現在:每幀只看數值「變化量」,加到實際位置上再夾在行程內 —— 一往回轉就馬上離開擋塊,跟真的一樣
+    armPhys: () => armStep().phys,
     // 0 = 收起、1 = 放下
-    armFrac: () => { const a = m('arm'), span = (a.down ?? 10) - (a.up ?? 0); return span ? clamp((raw(a.sig) - (a.up ?? 0)) / span, 0, 1) : 0; },
-    // 手臂超過行程(軟限位沒開時,真的機器人就是撞壞)
-    armOver: () => { const a = m('arm'); if (!a.sig) return 0; const v = raw(a.sig), lo = Math.min(a.up ?? 0, a.down ?? 10), hi = Math.max(a.up ?? 0, a.down ?? 10), pad = Math.abs(hi - lo) * 0.05 + 0.5;
-                     return v > hi + pad || v < lo - pad - 0.5 ? v : 0; },
+    armFrac: () => { const a = m('arm'), s = armStep(), span = (a.down ?? 10) - (a.up ?? 0); return span ? clamp((s.phys - (a.up ?? 0)) / span, 0, 1) : 0; },
+    // 手臂正在「頂著擋塊」(程式還在叫它往外轉)→ 回傳程式數值,沒有就 0
+    armOver: () => { const s = armStep(); return performance.now() - s.pushT < 800 ? (s.last || 0.001) : 0; },
     turretRaw: () => raw(m('turret').sig),
     turretRad: () => raw(m('turret').sig) * (m('turret').degPerUnit ?? 18) * Math.PI / 180,
     fly: () => val('flywheel'),
@@ -275,6 +294,32 @@ const ROBOT = (() => {
   gear.id = 'mapBtn'; gear.textContent = '⚙️ 機構設定'; gear.title = '設定模擬器要讀哪些數值(換成別人的程式時用)';
   gear.onclick = () => openSettings();
   bar.insertBefore(gear, document.getElementById('fullBtn'));
+  // 📖 教學:不用關模擬器,直接在畫面上打開 help.html
+  const helpBtn = document.createElement('button');
+  helpBtn.id = 'helpBtn'; helpBtn.textContent = '📖 教學'; helpBtn.title = '新手教學(電腦操作)';
+  helpBtn.onclick = () => {
+    let d = document.getElementById('helpDlg');
+    if (!d) {
+      d = document.createElement('dialog'); d.id = 'helpDlg'; d.className = 'mapdlg';
+      d.style.cssText = 'width:min(1100px,96vw);height:90vh;padding:0;overflow:hidden';
+      d.innerHTML = '<form method="dialog" style="position:absolute;right:10px;top:8px;z-index:2"><button style="padding:4px 12px;border-radius:8px;border:1px solid #30363d;background:#1c2230;color:#e6edf3;cursor:pointer">✕ 關閉</button></form>'
+        + '<iframe src="help.html" style="width:100%;height:100%;border:0;background:#0d1117"></iframe>';
+      document.body.append(d);
+    }
+    setEnabled(false);          // 看教學時先停用,免得機器人自己跑
+    d.showModal();
+  };
+  bar.insertBefore(helpBtn, gear);
+  // 🎨 畫質(3D):高 = 環境遮蔽 + 光暈、中 = 光暈、低 = 最省電
+  const qSel = document.createElement('select');
+  qSel.id = 'qualitySel'; qSel.title = '3D 畫質(卡的話調低)';
+  qSel.style.cssText = 'background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:13px';
+  qSel.innerHTML = '<option value="high">🎨 畫質:高</option><option value="mid">🎨 畫質:中</option><option value="low">🎨 畫質:低</option>';
+  try { qSel.value = localStorage.getItem('sim-quality') || 'high'; } catch {}
+  qSel.onchange = () => { if (window.View3D && View3D.setQuality) View3D.setQuality(qSel.value); };
+  bar.insertBefore(qSel, helpBtn);
+  qSel.style.display = 'none';     // 後製特效還沒修好(會黑屏),先藏起來
+  try { localStorage.removeItem('sim-quality'); } catch {}
   const sw = document.createElement('button');
   sw.id = 'switchProj'; sw.textContent = '📂 換專案'; sw.style.display = 'none';
   sw.onclick = () => { if (confirmSwitch()) fetch('/api/switch-project', { method: 'POST' }).catch(() => {}); };

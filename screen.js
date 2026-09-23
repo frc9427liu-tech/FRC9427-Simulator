@@ -341,7 +341,9 @@ function updateHud() {
   // 超過極限警告:軟限位還沒打開時,模擬器裡的手臂/砲台會一直轉下去,真的機器人就是撞壞
   const armOver = ROBOT.armOver(), turDeg = ROBOT.turretRad() * 180 / Math.PI;
   const warns = [];
-  if (armOver) warns.push(`⚠️ 手臂跑到 ${armOver.toFixed(1)},超過行程!真的機器人會撞壞`);
+  // 真的手臂轉到底會被機構擋住,畫面上手臂停在底(armFrac 夾在 0~1);
+  // 但程式還在一直叫馬達轉 → 真車會撞擋塊、燒馬達。所以提醒要開軟限位,而不是只說「轉了 67 圈」
+  if (armOver) warns.push(`💥 手臂撞到擋塊了,程式還在叫馬達轉(數值 ${armOver.toFixed(1)})→ 真車會撞壞/燒馬達,LEO 要開軟限位`);
   if (Math.abs(turDeg) > 100) warns.push(`⚠️ 砲台轉了 ${turDeg.toFixed(0)}°,超過極限!線會被扯斷`);
   hudEl.innerHTML =
     `<div style="color:${enabled ? '#3fb950' : '#8b98a5'}">${modeTxt}・${enabled ? '啟用中' : '停用'}</div>` +

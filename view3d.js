@@ -3,6 +3,12 @@
 import * as THREE from './three.module.min.js';
 import { GLTFLoader } from './GLTFLoader.js';
 import { mergeGeometries } from './BufferGeometryUtils.js';
+// 後製特效(2026-09-23,使用者要「GTA6 高級光影」):環境遮蔽 GTAO + 光暈 Bloom
+import { EffectComposer } from './EffectComposer.js';
+import { RenderPass } from './RenderPass.js';
+import { GTAOPass } from './GTAOPass.js';
+import { UnrealBloomPass } from './UnrealBloomPass.js';
+import { OutputPass } from './OutputPass.js';
 
 // ---- 常數 ----
 const FW = 16.54, FH = 8.07;          // 場地大小(公尺)
@@ -343,6 +349,23 @@ function buildStands() {
 }
 
 // 會場:白色帳篷天花板、桁架、點光、牆上藍紅旗幟
+let _beamGeo = null, _beamMat = null;
+const beamGeo = () => _beamGeo || (_beamGeo = new THREE.ConeGeometry(2.4, 11, 32, 1, true));
+function beamMat() {
+  if (_beamMat) return _beamMat;
+  _beamMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+    uniforms: { strength: { value: 0.05 } },
+    vertexShader: `varying float vY; varying vec3 vN; varying vec3 vV;
+      void main() { vY = uv.y; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float strength; varying float vY; varying vec3 vN; varying vec3 vV;
+      void main() { float edge = pow(abs(dot(vN, vV)), 1.6);          // 正對鏡頭的中間亮、邊緣淡
+        float a = strength * pow(vY, 1.8) * edge;                      // 靠近燈(上面)亮,往下淡
+        gl_FragColor = vec4(vec3(0.92, 0.96, 1.0) * a, a); }`,
+  });
+  return _beamMat;
+}
 function buildArena() {
   const cx = FW / 2, cz = FH / 2;
   // 帳篷天花板(微亮的白)
@@ -378,6 +401,11 @@ function buildArena() {
       const h = halo(0xeaf2ff, 3.2, 0.5);
       h.position.set(x, 12.0, z);
       scene.add(h);
+      // 燈下面淡淡的光束(體育館有灰塵時看得到的那種),越往下越淡、邊緣淡
+      const beam = new THREE.Mesh(beamGeo(), beamMat());
+      beam.position.set(x, 12.0 - 5.5, z);
+      beam.renderOrder = 3;
+      scene.add(beam);
     }
   }
   for (let i = 0; i < 5; i++) box(0.2, 0.2, 14, truss, scene, cx + (i - 2) * 6.3, 12.6, cz).castShadow = false;
@@ -1209,6 +1237,8 @@ function adaptQuality(dt) {
   let pr = curPR;
   // 最低降到 1.0(跟螢幕像素一樣),再低畫面會糊掉(使用者嫌「糊糊的」)
   if (slowT > 1.5 && curPR > 1) { pr = Math.max(1, curPR - 0.25); slowT = 0; }
+  // 解析度已經降到底還是卡 → 先關環境遮蔽(最吃效能的那個),只留光暈
+  else if (slowT > 3 && curPR <= 1 && quality === 'high' && !qualityPinned) { quality = 'mid'; setupComposer(); slowT = 0; }
   if (pr !== curPR) { curPR = pr; renderer.setPixelRatio(pr); resize(W, H); }
 }
 
@@ -1217,6 +1247,38 @@ function resize(w, h) {
   renderer.setSize(W, H, false);
   camera.aspect = W / H;
   camera.updateProjectionMatrix();
+  if (composer) { composer.setPixelRatio(curPR); composer.setSize(W, H); }
+}
+
+// ---- 畫質:高 = 環境遮蔽 + 光暈、中 = 只有光暈、低 = 都不開(最省) ----
+let composer = null, gtaoPass = null, bloomPass = null, qualityPinned = false;
+let quality = (() => { try { return localStorage.getItem('sim-quality') || 'high'; } catch { return 'high'; } })();
+function setupComposer() {
+  if (composer) { composer.dispose(); composer = null; }
+  // ⚠️ 2026-09-23 用顯示卡實測:只開光暈(Bloom)畫面上半部也整片黑(推測場館燈的超亮數值讓後製算出 NaN)。
+  // 修好之前後製全部關掉,畫面跟之前一樣;燈光光束(不是後製)照常有
+  return;
+  // eslint-disable-next-line no-unreachable
+  if (quality === 'low') return;
+  // 多重取樣的 render target:用後製時內建反鋸齒會失效,要自己開 MSAA
+  const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(curPR);
+  composer.setSize(W, H);
+  composer.addPass(new RenderPass(scene, camera));
+  // ⚠️ 2026-09-23 使用者實測:開 GTAO 畫面上半部整片變黑(大場景的深度範圍讓 AO 算錯)→ 先關掉,修好再開
+  if (quality === 'high' && false) {
+    // 環境遮蔽:角落、縫隙、車底、HUB 腳下自然變暗(立體感主要來源)
+    gtaoPass = new GTAOPass(scene, camera, W, H);
+    gtaoPass.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples: 12 });
+    gtaoPass.updatePdMaterial({ radius: 6, lumaPhi: 10, depthPhi: 2, normalPhi: 3 });
+    gtaoPass.blendIntensity = 0.9;
+    composer.addPass(gtaoPass);
+  } else gtaoPass = null;
+  // 光暈:只有很亮的東西(場館燈、HUB 燈、RSL、飛輪)會溢光
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(W, H), 0.45, 0.55, 0.92);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());       // 色調映射(ACES)+ sRGB
 }
 
 // ================= 官方 AdvantageScope 模型(場地、Fuel、KitBot) =================
@@ -1499,6 +1561,7 @@ window.View3D = {
     el.appendChild(cv);
     build();
     resize(el.clientWidth, el.clientHeight);
+    setupComposer();
     new ResizeObserver(() => resize(el.clientWidth, el.clientHeight)).observe(el);
     loadAssets();
   },
@@ -1517,8 +1580,16 @@ window.View3D = {
     updateFx(s, dt);
     updateCamera(s, dt);
     if ((frameNo++ & 1) === 0) renderer.shadowMap.needsUpdate = true;
-    renderer.render(scene, camera);
+    if (composer && !debugCam) composer.render(); else renderer.render(scene, camera);
   },
+  // 畫質選單:'high' | 'mid' | 'low'(使用者手動選的就不會被自動降)
+  setQuality(q) {
+    if (!['high', 'mid', 'low'].includes(q)) return;
+    quality = q; qualityPinned = true;
+    try { localStorage.setItem('sim-quality', q); } catch {}
+    if (renderer) { if (q === 'high' && curPR < basePR) { curPR = basePR; renderer.setPixelRatio(curPR); resize(W, H); } setupComposer(); }
+  },
+  get quality() { return quality; },
   setCamera(mode) {
     if (!CAM_MODES.includes(mode) || mode === camMode) return;
     camMode = mode;

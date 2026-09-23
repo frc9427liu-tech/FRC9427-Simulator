@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('sim', {
   removeRecent: dir => ipcRenderer.invoke('remove-recent', dir),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   openProject: dir => ipcRenderer.invoke('open-project', dir),
+  openHelp: () => ipcRenderer.invoke('open-help'),
 });

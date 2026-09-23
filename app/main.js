@@ -19,6 +19,7 @@ const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.
 const SERVER_JS = app.isPackaged ? path.join(process.resourcesPath, 'server', 'server.js') : path.join(__dirname, '..', 'server.js');
 const { createServer } = require(SERVER_JS);
 
+let simStage = '';
 let startWin = null, splash = null, win = null, simProc = null, server = null, webPort = 0;
 let weStartedSim = false, quitting = false, switching = false, project = null;
 let logPath = '';
@@ -140,6 +141,15 @@ function startSim(dir, jdk) {
   weStartedSim = true;
   simProc.stdout.pipe(log, { end: false });
   simProc.stderr.pipe(log, { end: false });
+  // 看 Gradle 輸出到哪一步,啟動畫面顯示「現在在做什麼」(使用者嫌乾等很久)
+  simStage = '準備中(第一次開要啟動 Gradle,比較久)';
+  simProc.stdout.on('data', buf => {
+    const s = String(buf);
+    if (/Task :compileJava(?! UP-TO-DATE)/.test(s)) simStage = '編譯你的程式…';
+    else if (/Task :compileJava UP-TO-DATE/.test(s)) simStage = '程式沒改過,不用重新編譯 ✓';
+    if (/Task :simulateJava/.test(s)) simStage = '啟動機器人程式…';
+    if (/Robot program starting/.test(s)) simStage = '機器人程式開機中…';
+  });
   const me = simProc;
   me.on('exit', code => { log.write(`\n[模擬器結束,代碼 ${code}]\n`); if (simProc === me) simProc = null; });
 }
@@ -256,8 +266,8 @@ async function openProject(dir) {
         if (quitting) return;
         if (!simProc) return fail('模擬器啟動失敗(程式可能編譯不過)', `紀錄檔最後幾行:\n\n${logTail()}`);
         if (Date.now() - t0 > 180000) return fail('模擬器 3 分鐘都沒起來', `紀錄檔最後幾行:\n\n${logTail()}`);
-        say('模擬器啟動中… 第一次約 30 秒', `已經等了 ${Math.round((Date.now() - t0) / 1000)} 秒`);
-        await sleep(1000);
+        say(simStage, `已經 ${Math.round((Date.now() - t0) / 1000)} 秒`);
+        await sleep(500);
       }
     }
 
@@ -310,7 +320,24 @@ async function main() {
     return app.quit();
   }
   showStart();
+  warmGradle();
   checkUpdates();
+}
+
+// Gradle 暖機:起始畫面一打開,就在背景對「最近開的專案」跑一個什麼都不做的 Gradle 指令,
+// 讓 Gradle daemon 先啟動。使用者選專案時就不用再等 daemon(剛開機時可省 10~20 秒)。
+// 失敗也沒關係,只是沒暖到。
+function warmGradle() {
+  try {
+    const first = recents().find(r => r.exists);
+    const jdk = findJdk();
+    if (!first || !jdk) return;
+    const gradlew = path.join(first.path, 'gradlew.bat');
+    const p = spawn('cmd.exe', ['/d', '/s', '/c', `""${gradlew}" --daemon -q help"`], {
+      cwd: first.path, env: { ...process.env, JAVA_HOME: jdk }, windowsHide: true, windowsVerbatimArguments: true, stdio: 'ignore',
+    });
+    p.on('error', () => {});
+  } catch {}
 }
 
 // ---------- 自動更新(GitHub Releases:frc9427liu-tech/FRC9427-Simulator) ----------

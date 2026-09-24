@@ -1515,6 +1515,8 @@ function applyKitLayout() {
     const sat = c.b - Math.max(c.r, c.g);
     if (sat > bestSat) { bestSat = sat; bumper = m.material; }
   }
+  R.kitBumperMat = bumper;
+  if (bumper) R.kitBumperColor = bumper.color.clone();
   if (bumper && R.numMat.map) {
     const cv = R.numMat.map.image, g = cv.getContext('2d');
     g.clearRect(0, 0, cv.width, cv.height);
@@ -1543,6 +1545,143 @@ function applyKitLayout() {
   box(0.02, 0.04, 0.02, std(0x2b2f35, 0.45, 0.7), R.robot, -0.29, 0.485, 0.2);
   for (const c of R.robot.children) if (c.isMesh && c.material === R.rslMat && c !== rsl) c.visible = false;
   R.rslHalo.position.set(-0.29, 0.525, 0.2);
+  applyLook();
+}
+
+// ============================================================
+//  🤖 自訂機器人外觀(robotcustom.js 呼叫 View3D.setRobotLook / setRobotModel / setRobotLogo)
+//    - 保險桿顏色、隊號、隊徽圖片 → 畫在保險桿的隊號牌上
+//    - 匯入自己的 3D 模型(Onshape / SolidWorks / Fusion 匯出的 .glb)→ 取代 KitBot 車身
+//    - 車身尺寸改了 → 自己產生對應大小的保險桿
+// ============================================================
+const LOOK = { cfg: {}, gltf: null, logo: null, body: null, bumpers: null, info: null };
+const BUMPER_HEX = { red: '#c8102e', blue: '#1452b8' };
+const bumperHex = c => BUMPER_HEX[c] || (/^#[0-9a-f]{6}$/i.test(c || '') ? c : BUMPER_HEX.red);
+
+// 隊號牌:底色 = 保險桿顏色,左邊隊徽(有的話)、右邊大大的白色隊號
+function drawPlate() {
+  if (!R.numMat || !R.numMat.map) return;
+  const cv = R.numMat.map.image, g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  const c = LOOK.cfg;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = bumperHex(c.bumperColor); g.fillRect(0, 0, w, h);
+  let x0 = 0;
+  if (LOOK.logo) {
+    const im = LOOK.logo, sc = Math.min((h - 16) / im.height, (h - 16) / im.width);
+    const iw = im.width * sc, ih = im.height * sc;
+    g.drawImage(im, 8 + (h - 16 - iw) / 2, (h - ih) / 2, iw, ih);
+    x0 = h;
+  }
+  g.font = '900 160px "Arial Black", Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#ffffff';
+  g.fillText(String(c.teamNumber ?? '9427').slice(0, 6), x0 + (w - x0) / 2, h / 2 + 8, w - x0 - 10);
+  R.numMat.map.needsUpdate = true;
+}
+
+// 自己產生保險桿:沿著車身外圍一圈(布面材質),兩側 + 後面貼隊號牌
+function buildBumpers(L, W) {
+  const g = new THREE.Group();
+  const t = 0.085, h = 0.13, y = 0.1;
+  const fabric = new THREE.CanvasTexture(noiseCanvas(128, 225, 30));
+  fabric.wrapS = fabric.wrapT = THREE.RepeatWrapping; fabric.repeat.set(20, 3); fabric.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshPhysicalMaterial({ color: bumperHex(LOOK.cfg.bumperColor), roughness: 0.8, map: fabric, sheen: 1, sheenRoughness: 0.45 });
+  g.userData.mat = mat;
+  const side = new THREE.BoxGeometry(L, h, t), end = new THREE.BoxGeometry(t, h, W - 2 * t);
+  mesh(side, mat, g, 0, y, W / 2 - t / 2); mesh(side, mat, g, 0, y, -W / 2 + t / 2);
+  mesh(end, mat, g, L / 2 - t / 2, y, 0); mesh(end, mat, g, -L / 2 + t / 2, y, 0);
+  const pw = Math.min(0.62, L * 0.75), ph = pw / 4;
+  const plate = new THREE.PlaneGeometry(pw, ph);
+  mesh(plate, R.numMat, g, 0, y, W / 2 + 0.002, false);
+  mesh(plate, R.numMat, g, 0, y, -W / 2 - 0.002, false).rotation.y = Math.PI;
+  const bw = Math.min(0.56, W * 0.7);
+  mesh(new THREE.PlaneGeometry(bw, bw / 4), R.numMat, g, -L / 2 - 0.002, y, 0, false).rotation.y = -Math.PI / 2;
+  return g;
+}
+
+// 匯入的模型:套旋轉 / 縮放 → 自動縮到車身大小、擺到車子中心、貼地 → 依材質合併(CAD 模型零件很多,不合併會卡)
+function buildCustomBody() {
+  const c = LOOK.cfg, mc = c.model || {};
+  const L = +c.length || 0.86, W = +c.width || 0.86, bump = mc.bumpers !== false ? 0.17 : 0;
+  const wrap = new THREE.Group(), rot = new THREE.Group();
+  const d2r = THREE.MathUtils.degToRad;
+  rot.rotation.set(d2r(+mc.rotX || 0), d2r(+mc.rotY || 0), d2r(+mc.rotZ || 0));
+  rot.scale.setScalar(+mc.scale || 1);
+  rot.add(LOOK.gltf);
+  wrap.add(rot);
+  wrap.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(wrap), sz = box.getSize(new THREE.Vector3());
+  if (mc.autoFit !== false && sz.x > 1e-6 && sz.z > 1e-6) {
+    wrap.scale.setScalar(Math.min((L - bump) / sz.x, (W - bump) / sz.z));
+    wrap.updateMatrixWorld(true);
+    box.setFromObject(wrap);
+  }
+  const ctr = box.getCenter(new THREE.Vector3());
+  wrap.position.set(-ctr.x, -box.min.y + (+mc.lift || 0), -ctr.z);
+  wrap.updateMatrixWorld(true);
+  const meshes = [], bb = new THREE.Box3(), bs = new THREE.Vector3();
+  let tris = 0, dropped = 0;
+  wrap.traverse(o => {
+    if (!o.isMesh) return;
+    const n = (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    // 螺絲、螺帽、墊片、鉚釘:看不到又很耗效能(一顆螺絲的螺紋就幾千個三角形)
+    let q = o, tiny = false;
+    while (q && q !== wrap) { if (/screw|bolt|nut|washer|rivet|shcs|bhcs|fhcs|螺絲|螺帽/i.test(q.name)) { tiny = true; break; } q = q.parent; }
+    const dim = Math.max(...bb.setFromObject(o).getSize(bs).toArray());
+    if (tiny || dim < 0.01 || (n > 15000 && dim < 0.06)) { dropped++; return; }
+    tris += n; meshes.push(o);
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      // 合併時只留位置和法線 → 貼圖會壞掉,改用貼圖的平均色就好(CAD 匯出的模型幾乎都是純色)
+      if (m && m.map) { m.map = null; m.needsUpdate = true; }
+      if (m && m.vertexColors) m.vertexColors = false;
+    }
+  });
+  const body = new THREE.Group(), origin = new THREE.Object3D();
+  origin.updateMatrixWorld(true);
+  const parts = mergeByMaterial(body, meshes, origin);
+  // 三角形太多的模型不投影(陰影要把整台車再畫一次),改用方塊代替
+  if (tris > 150000) {
+    for (const m of parts) m.castShadow = false;
+    const proxy = new THREE.Mesh(new THREE.BoxGeometry(L * 0.9, 0.5, W * 0.9), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+    proxy.position.y = 0.25; proxy.castShadow = true; body.add(proxy);
+  }
+  rot.remove(LOOK.gltf);
+  const fin = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3());
+  LOOK.info = { tris: Math.round(tris), parts: meshes.length, merged: parts.length, dropped,
+                size: [+fin.x.toFixed(3), +fin.z.toFixed(3), +fin.y.toFixed(3)], rawSize: [+sz.x.toFixed(3), +sz.z.toFixed(3), +sz.y.toFixed(3)] };
+  return body;
+}
+
+function disposeTree(o) {
+  o.traverse(m => { if (m.isMesh) { m.geometry.dispose(); } });
+}
+
+function applyLook() {
+  if (!R.robot) return;
+  const c = LOOK.cfg, mc = c.model || {};
+  const custom = mc.source === 'custom' && !!LOOK.gltf;
+  const L = +c.length || 0.86, W = +c.width || 0.86;
+  // 車身
+  if (LOOK.body) { R.robot.remove(LOOK.body); disposeTree(LOOK.body); LOOK.body = null; }
+  if (custom) {
+    try { LOOK.body = buildCustomBody(); R.robot.add(LOOK.body); }
+    catch (e) { console.warn('自訂模型套用失敗', e); LOOK.info = { error: String(e.message || e) }; }
+  } else LOOK.info = null;
+  if (R.kitBody) R.kitBody.visible = !custom;
+  // 保險桿:自訂模型(或 KitBot 以外的尺寸)用自己產生的
+  if (LOOK.bumpers) { R.robot.remove(LOOK.bumpers); disposeTree(LOOK.bumpers); LOOK.bumpers = null; }
+  if (custom && mc.bumpers !== false) { LOOK.bumpers = buildBumpers(L, W); R.robot.add(LOOK.bumpers); }
+  // 原本的隊號牌(KitBot 位置)只在 KitBot 模式顯示
+  for (const ch of R.robot.children) if (ch.isMesh && ch.material === R.numMat) ch.visible = !custom;
+  // KitBot 保險桿換顏色
+  if (R.kitBumperMat) R.kitBumperMat.color.set(c.bumperColor ? bumperHex(c.bumperColor) : '#' + R.kitBumperColor.getHexString());
+  drawPlate();
+  // 模擬用的機構(砲台 / 手臂 / 球堆 / 我們畫的輪子):自訂模型預設藏起來,可以在設定裡打開
+  const mech = mc.showMechs ?? !custom;
+  for (const o of [R.turret, R.intake, R.held]) if (o) o.visible = mech;
+  for (const w of R.wheels || []) w.g.visible = !custom || mech;
+  // 接觸陰影跟著車身大小
+  if (R.blob) R.blob.scale.set(L / 0.86, 1, W / 0.86);
+  renderer && (renderer.shadowMap.needsUpdate = true);
 }
 
 // ---- 對外介面 ----
@@ -1567,6 +1706,7 @@ window.View3D = {
     cv.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;';
     el.appendChild(cv);
     build();
+    applyLook();
     resize(el.clientWidth, el.clientHeight);
     setupComposer();
     new ResizeObserver(() => resize(el.clientWidth, el.clientHeight)).observe(el);
@@ -1602,6 +1742,19 @@ window.View3D = {
     camMode = mode;
     camBlend = 0;
   },
+  // 🤖 自訂機器人:外觀設定(隨時可以呼叫,3D 還沒開也會記住,開了再套用)
+  setRobotLook(cfg) { LOOK.cfg = cfg || {}; applyLook(); return LOOK.info; },
+  // 匯入 .glb / .gltf(ArrayBuffer);null = 回到 KitBot。回傳 Promise<模型資訊>
+  setRobotModel(buf) {
+    if (!buf) { LOOK.gltf = null; applyLook(); return Promise.resolve(null); }
+    return new Promise((ok, fail) => {
+      new GLTFLoader().parse(buf, '', g => { LOOK.gltf = g.scene; applyLook(); ok(LOOK.info); },
+        e => fail(new Error('看不懂這個模型檔(' + ((e && e.message) || e) + ')。請匯出成 .glb')));
+    });
+  },
+  // 隊徽圖片(HTMLImageElement / ImageBitmap / canvas);null = 拿掉
+  setRobotLogo(img) { LOOK.logo = img || null; drawPlate(); },
+  get robotModelInfo() { return LOOK.info; },
   _info() { return renderer && { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, pr: curPR, progs: renderer.info.programs.length }; },   // 除錯用
   // 除錯用:把場景畫進 32 位元浮點畫布,數有幾個像素是 NaN / 無限大 / 超過半精度上限(後製黑屏的嫌疑犯)
   _fx(o) { fxTest = o; setupComposer(); },   // 除錯用:測試後製 {type:'half'|'float', samples, gtao, bloom},null = 關

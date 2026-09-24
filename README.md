@@ -20,6 +20,18 @@
 
 詳細說明:[使用說明.md](使用說明.md)
 
+## 🤖 自訂機器人
+
+模擬器上方按 **🤖 自訂機器人**,把畫面裡的車換成你們自己的:
+
+- **3D 模型**:Onshape 在組合件上按右鍵 → Export → 格式選 GLTF(.glb);SolidWorks / Fusion / Blender 匯出 .glb 也可以。可以旋轉、縮放、自動縮到車身尺寸、自動加保險桿,按 👀 看一下 可以邊調邊看
+- **保險桿**:紅 / 藍、隊號、隊徽圖片(印在保險桿上)
+- **尺寸**:含保險桿的長 × 寬,碰撞和吸球口跟著變
+- **底盤動力**:馬達(Kraken / Vortex / NEO / Falcon)、每邊幾顆、減速比、輪徑、車重、輪胎摩擦、電流限制 → 用真的直流馬達模型算加速、極速、打滑
+- **電池**:開路電壓、內阻 → 全力加速時電壓會掉,太低會 Brownout(畫面左上角顯示電壓和底盤電流)
+
+設定存在專案的 `.robot-sim.json`(`robot` 欄位,可以 commit 給隊友);模型檔和隊徽比較大,存在這台電腦的瀏覽器。
+
 ## 🔧 機構實驗室
 
 模擬器上方按 **🔧 機構實驗室**(或直接開 `mechlab.html`),單獨模擬一個機構的馬達、電流和控制:
@@ -30,7 +42,7 @@
 - **電池**:內阻造成電壓下降,低於 6.75 V 會 Brownout
 - **控制**:跟 WPILib 一樣每 20 ms 跑一次 PID + 前饋(kS / kG / kV / kA)+ 梯形運動曲線;🧮 可以依物理模型自動算出理想前饋
 - **圖表**:位置 / 轉速、電壓、電流、功率與發熱四張即時圖,可以匯出 CSV;另有上升時間、超越量、穩定時間、馬達溫度(估算)
-- 手機、平板也能開。測試:`node tests/mechlab.test.js`
+- 手機、平板也能開
 
 ## 🛠️ 發新版(給維護的人)
 
@@ -50,6 +62,8 @@
 | `index.html` `screen.js` `view3d.js` | 搖桿網頁、2D / 3D 畫面 |
 | `physics.js` | 物理(底盤、球、射球、場地碰撞) |
 | `mechlab.html` `mechlab-core.js` `mechlab-ui.js` | 🔧 機構實驗室(`-core` 是物理和控制,node 也能跑) |
+| `robotcustom.js` | 🤖 自訂機器人(模型、保險桿、尺寸、底盤馬達、電池) |
+| `tests/` | 自動測試:`node tests/mechlab.test.js`、`node tests/drive.test.js` |
 | `robotmap.js` | ⚙️ 機構設定(讓任何程式都能對應) |
 | `demo.js` `keyboard.js` | 展示模式、鍵盤操作 |
 | `server.js` `sim-ws.gradle` | 小伺服器、讓 WPILib 模擬器接受網頁搖桿 |

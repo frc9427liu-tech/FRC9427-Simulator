@@ -118,6 +118,7 @@ const ROBOT = (() => {
     get demoOK() { return !!cfg.demo; },
     catalog,
     openSettings,
+    save: c => save(c),
   };
 
   // ---------- 目前能選的訊號(給設定畫面) ----------
@@ -182,6 +183,7 @@ const ROBOT = (() => {
       project = { name: 'LEO', path: '', canSwitch: false, api: false, fromFile: false };
     }
     relabel();
+    window.dispatchEvent(new Event('robot-config-loaded'));      // 🤖 自訂機器人(robotcustom.js)等這個再套用
     const sw = document.getElementById('switchProj');
     if (sw) sw.style.display = project.canSwitch ? '' : 'none';
   }

@@ -10,18 +10,66 @@
 //      打到 HUB 側面會彈開;進球的球會從 HUB 後面的出口滾回中場
 //  場地元件的位置和大小是從官方 AdvantageScope 場地模型(Field3d_2026FRCFieldV2)量出來的。
 //  標「示意」的是還沒量到真實數字、先用合理值的參數,量到再改這裡就好。
+//  2026-09-24 v6:底盤改用真實馬達 + 電池模型(mechlab-core.js),車身尺寸可以自訂(robotcustom.js)
 //  讀 screen.js 的全域:pose, fieldBalls, shots, held, FIELD_W, FIELD_H, HUBS, HUB_TOP, BALL_R, MAX_HELD
 // ============================================================
 const PHYS = (() => {
   // ---------- 參數 ----------
   const G = 9.81;
-  const ROBOT_HALF = 0.43;         // 含保險桿半邊長(公尺)
-  const V_FREE = 4.4;              // 示意:全出力的極速(m/s),齒比/輪徑量到再改
-  const TAU = 0.28;                // 示意:馬達加速的時間常數(秒),越小起步越快
-  const A_MAX = 7.5;               // 輪胎抓地力上限(m/s²),大約 0.75 g
-  const TRACK = 0.62;              // 左右輪距
+  // 車身尺寸和底盤動力都從 🤖 自訂機器人(robotcustom.js)來,這裡是預設值(LEO / KitBot 大小)
+  let HX = 0.43, HY = 0.43;        // 含保險桿的半長(前後)、半寬(左右)
+  let TRACK = 0.62;                // 左右輪距
   const SCRUB = 1.3;               // 坦克式原地轉有輪胎側滑,實際轉得比理論慢
   const BUMP_SLOW = 0.7;           // 開上 BUMP 速度打折
+  const SCRUB_K = 0.35;            // 轉彎側滑阻力 ≈ 0.35 × 車重(6 輪中間輪較低的 drop-center 大約這樣)
+  let INTAKE_HALF = 0.33;          // 車頭吸球口的半寬
+
+  // ---------- 底盤動力(2026-09-24 v6:真實馬達 + 電池) ----------
+  // 以前:目標速度 = 出力 × 固定極速,用固定時間常數追上去(示意)。
+  // 現在:每一邊 n 顆馬達 → 減速箱 → 輪子,用機構實驗室(mechlab-core.js)同一套直流馬達模型:
+  //   馬達電流 I = (V − ω/kV) / R、推力 F = n·kT·I·G·η / r_輪
+  //   推力超過輪胎抓地力(μ·m·g/2)就打滑 → 加速度上限跟車重、輪胎有關
+  //   所有馬達的電流一起從電池抽 → 電壓掉下來,車就變慢;太低會 Brownout
+  //   控制器的定子 / 供電電流限制一樣有作用(限制越低,起步越溫和、越不容易 Brownout)
+  const ML = typeof MechLab !== 'undefined' ? MechLab : null;
+  let DRV = null;                  // { gb, ctrlL, ctrlR, battery, mass, mu, wheelR }
+  const DRIVE_DEFAULT = { motor: 'krakenX60', perSide: 2, ratio: 7.31, wheelIn: 4, mass: 60, mu: 1.1, efficiency: 0.97,
+                          statorLimit: 80, supplyLimit: 60 };
+  const BATT_DEFAULT = { openV: 12.6, resistance: 0.02 };
+  function configure(body) {
+    body = body || {};
+    const len = +body.length || 0.86, wid = +body.width || 0.86;
+    HX = len / 2; HY = wid / 2;
+    TRACK = Math.max(0.3, wid - 0.24);
+    INTAKE_HALF = Math.max(0.12, Math.min(0.33, HY - 0.1));
+    if (!ML) { DRV = null; return; }
+    const d = Object.assign({}, DRIVE_DEFAULT, body.drive || {});
+    const b = Object.assign({}, BATT_DEFAULT, body.battery || {});
+    const motor = ML.MOTORS[d.motor] || ML.MOTORS.krakenX60;
+    const lim = { statorLimit: d.statorLimit, supplyLimit: d.supplyLimit };
+    const oldBatt = DRV && DRV.battery;
+    DRV = {
+      d, gb: new ML.Gearbox(motor, Math.max(1, Math.round(d.perSide)), Math.max(0.1, d.ratio), d.efficiency),
+      ctrlL: new ML.MotorController(lim), ctrlR: new ML.MotorController(lim),
+      battery: oldBatt || new ML.Battery(b), mass: Math.max(5, d.mass), mu: Math.max(0.1, d.mu),
+      wheelR: Math.max(0.01, d.wheelIn * 0.0254 / 2),
+    };
+    Object.assign(DRV.battery, b);
+  }
+  // 由規格推算的性能(給 🤖 自訂機器人 畫面顯示)
+  function driveSpecs(body) {
+    if (!ML) return null;
+    const d = Object.assign({}, DRIVE_DEFAULT, (body && body.drive) || {});
+    const m = ML.MOTORS[d.motor] || ML.MOTORS.krakenX60, r = d.wheelIn * 0.0254 / 2, n = d.perSide * 2;
+    const vFree = m.freeSpeed / d.ratio * r;                                    // 理論極速(沒負載、12 V)
+    const lim = d.statorLimit > 0 ? Math.min(d.statorLimit, m.stallCurrent) : m.stallCurrent;
+    const fMotor = n * m.kT * lim * d.ratio * d.efficiency / r;                 // 電流限制下的最大推力
+    const fGrip = d.mu * d.mass * G;
+    return { vFree, fMotor, fGrip, aMax: Math.min(fMotor, fGrip) / d.mass, slips: fMotor > fGrip,
+             pushN: Math.min(fMotor, fGrip) };
+  }
+  // 沒有 MechLab(舊版網頁)時的簡化模型
+  const V_FREE = 4.4, TAU = 0.28, A_MAX = 7.5;
 
   const HUB_HALF = 0.595;          // HUB 本體 1.19 m 見方(官方模型)
   const OPEN_R = 0.58;             // HUB 頂部漏斗入口(六角形,用圓近似)
@@ -66,7 +114,7 @@ const PHYS = (() => {
     const dx = bx - cx, dy = by - cy;
     let best = null;
     for (const [ax, ay] of [[1, 0], [0, 1], [ux, uy], [vx, vy]]) {
-      const rR = ROBOT_HALF * (Math.abs(ux * ax + uy * ay) + Math.abs(vx * ax + vy * ay));
+      const rR = HX * Math.abs(ux * ax + uy * ay) + HY * Math.abs(vx * ax + vy * ay);
       const rB = hx * Math.abs(ax) + hy * Math.abs(ay);
       const d = dx * ax + dy * ay;
       const ov = rR + rB - Math.abs(d);
@@ -76,12 +124,50 @@ const PHYS = (() => {
     return best;
   }
 
+  // 其中一邊:出力(−1~1)→ 電壓 → 馬達電流 → 推力(受抓地力限制)→ 這一邊的加速度
+  function sideStep(out, vSide, vAvg, ctrl, h, slow) {
+    const { gb, battery } = DRV, mot = gb.motor;
+    const wm = gb.motorSpeed(vSide / DRV.wheelR);
+    const r = ctrl.apply(out * 12, mot, wm, battery.vBus);          // 程式出力 × 12 V,再套電池上限和電流限制
+    let F = gb.outputTorque(mot.kT * r.I, wm) / DRV.wheelR;           // 輪子推地板的力
+    const grip = DRV.mu * DRV.mass * G / 2 * slow;                    // 一邊輪子撐的重量 × 摩擦係數
+    const slip = Math.abs(F) > grip;
+    if (slip) F = Math.sign(F) * grip;
+    F -= 0.012 * DRV.mass * G / 2 * Math.sign(vSide);                 // 滾動阻力(很小)
+    // 轉彎的輪胎側滑:坦克式轉彎時前後輪會被橫向拖著走,吃掉一部分推力(越偏離平均速度越吃力)
+    const dv = vSide - vAvg;
+    if (Math.abs(dv) > 0.02) F -= SCRUB_K * DRV.mass * G / 2 * Math.sign(dv) * Math.min(1, Math.abs(dv) / 0.3);
+    return { a: F / (DRV.mass / 2), I: r.I, Isup: r.Isup * gb.count, limited: r.limited, slip };
+  }
   function drive(L, R, dt) {
     const slow = onBump(pose.x, pose.y) ? BUMP_SLOW : 1;
-    // 馬達:目標速度 = 出力 × 極速,越接近越難加速(反電動勢);再被抓地力上限卡住
-    const acc = (target, v) => Math.max(-A_MAX, Math.min(A_MAX, (target - v) / TAU));
-    S.vL += acc(L * V_FREE * slow, S.vL) * dt;
-    S.vR += acc(R * V_FREE * slow, S.vR) * dt;
+    if (DRV) {
+      // 物理切成 ≤ 4 ms 的小步(馬達的電氣時間常數很短,步長太大會不穩定)
+      const N = Math.max(1, Math.ceil(dt / 0.004)), h = dt / N;
+      const tel = { I: 0, Isup: 0, limited: '', slip: false };
+      for (let i = 0; i < N; i++) {
+        const brown = DRV.battery.brownout;
+        const vAvg = (S.vL + S.vR) / 2;
+        const l = sideStep(brown ? 0 : L, S.vL, vAvg, DRV.ctrlL, h, slow), r = sideStep(brown ? 0 : R, S.vR, vAvg, DRV.ctrlR, h, slow);
+        const nvL = S.vL + l.a * h, nvR = S.vR + r.a * h;
+        // 滾動阻力不能讓車倒退
+        S.vL = Math.abs(L) < 0.02 && Math.sign(nvL) !== Math.sign(S.vL) && S.vL !== 0 ? 0 : nvL;
+        S.vR = Math.abs(R) < 0.02 && Math.sign(nvR) !== Math.sign(S.vR) && S.vR !== 0 ? 0 : nvR;
+        DRV.battery.update(l.Isup + r.Isup, h);
+        tel.I += (Math.abs(l.I) + Math.abs(r.I)) * DRV.gb.count / N;
+        tel.Isup += (l.Isup + r.Isup) / N;
+        if (l.limited || r.limited) tel.limited = l.limited || r.limited;
+        if (l.slip || r.slip) tel.slip = true;
+      }
+      S.vBus = DRV.battery.vBus; S.brownout = DRV.battery.brownout;
+      S.current = tel.I; S.supply = tel.Isup; S.limited = tel.limited; S.slip = tel.slip;
+      S.minV = Math.min(S.minV ?? 99, S.vBus);
+    } else {
+      // 馬達:目標速度 = 出力 × 極速,越接近越難加速(反電動勢);再被抓地力上限卡住
+      const acc = (target, v) => Math.max(-A_MAX, Math.min(A_MAX, (target - v) / TAU));
+      S.vL += acc(L * V_FREE * slow, S.vL) * dt;
+      S.vR += acc(R * V_FREE * slow, S.vR) * dt;
+    }
     let v = (S.vL + S.vR) / 2, w = (S.vR - S.vL) / (TRACK * SCRUB);
     pose.th += w * dt;
     pose.x += v * Math.cos(pose.th) * dt;
@@ -90,11 +176,12 @@ const PHYS = (() => {
     // 碰撞:牆 + 障礙物,推出去之後把「往障礙物裡鑽」的速度吃掉(輪子打滑)
     S.blocked = false;
     const hitN = [];
-    const ext = ROBOT_HALF * (Math.abs(Math.cos(pose.th)) + Math.abs(Math.sin(pose.th)));
-    if (pose.x < ext) { pose.x = ext; hitN.push([1, 0]); }
-    if (pose.x > FIELD_W - ext) { pose.x = FIELD_W - ext; hitN.push([-1, 0]); }
-    if (pose.y < ext) { pose.y = ext; hitN.push([0, 1]); }
-    if (pose.y > FIELD_H - ext) { pose.y = FIELD_H - ext; hitN.push([0, -1]); }
+    const ac = Math.abs(Math.cos(pose.th)), as = Math.abs(Math.sin(pose.th));
+    const extX = HX * ac + HY * as, extY = HX * as + HY * ac;       // 轉了角度的長方形車,投影到 x / y 軸的半寬
+    if (pose.x < extX) { pose.x = extX; hitN.push([1, 0]); }
+    if (pose.x > FIELD_W - extX) { pose.x = FIELD_W - extX; hitN.push([-1, 0]); }
+    if (pose.y < extY) { pose.y = extY; hitN.push([0, 1]); }
+    if (pose.y > FIELD_H - extY) { pose.y = FIELD_H - extY; hitN.push([0, -1]); }
     for (const o of OBST) {
       const c = obbVsBox(pose.x, pose.y, pose.th, o);
       if (c) { pose.x += c.nx * c.depth; pose.y += c.ny * c.depth; hitN.push([c.nx, c.ny]); }
@@ -119,7 +206,7 @@ const PHYS = (() => {
   function balls(dt, t, arm, rollerDir, onCapture) {
     const c = Math.cos(pose.th), s = Math.sin(pose.th);
     const ux = c, uy = -s, vx = s, vy = c;                 // 車頭方向 u、車左右 v(畫面座標)
-    const front = ROBOT_HALF + (arm > 0.3 ? 0.06 + 0.28 * arm : 0);   // 手臂放下時前面多伸出一截
+    const front = HX + (arm > 0.3 ? 0.06 + 0.28 * arm : 0);   // 手臂放下時前面多伸出一截
     const r = BALL_R;
     grid.clear();
     for (let i = fieldBalls.length - 1; i >= 0; i--) {
@@ -141,16 +228,16 @@ const PHYS = (() => {
       // 車子
       const dx = b.x - pose.x, dy = b.y - pose.y;
       const lx = dx * ux + dy * uy, ly = dx * vx + dy * vy;
-      const inFront = lx > ROBOT_HALF - 0.05 && lx < front + r && Math.abs(ly) < 0.33;
+      const inFront = lx > HX - 0.05 && lx < front + r && Math.abs(ly) < INTAKE_HALF;
       // 吸球速度上限:約每秒 11 顆(示意;原本 40ms 一顆 → 2.5 秒吸 38 顆,太誇張)
       if (inFront && arm > 0.6 && rollerDir > 0 && held < MAX_HELD && t - lastCapture > 90) {
         fieldBalls.splice(i, 1); lastCapture = t; onCapture(b);
         continue;
       }
-      const fx = lx > 0 ? (Math.abs(ly) < 0.36 ? front : ROBOT_HALF) : ROBOT_HALF;
-      if (lx < fx + r && lx > -ROBOT_HALF - r && Math.abs(ly) < ROBOT_HALF + r) {
-        const penX = lx > 0 ? fx + r - lx : lx + ROBOT_HALF + r;
-        const penY = ROBOT_HALF + r - Math.abs(ly);
+      const fx = lx > 0 ? (Math.abs(ly) < INTAKE_HALF + 0.03 ? front : HX) : HX;
+      if (lx < fx + r && lx > -HX - r && Math.abs(ly) < HY + r) {
+        const penX = lx > 0 ? fx + r - lx : lx + HX + r;
+        const penY = HY + r - Math.abs(ly);
         let nx, ny, pen;
         if (penX < penY) { const sg = lx > 0 ? 1 : -1; nx = ux * sg; ny = uy * sg; pen = penX; }
         else { const sg = ly > 0 ? 1 : -1; nx = vx * sg; ny = vy * sg; pen = penY; }
@@ -320,5 +407,8 @@ const PHYS = (() => {
     return null;
   }
 
-  return { drive, balls, flights, launch, predict, rangeAt, state: S, onBump, OBST, BUMPS };
+  configure(null);
+  return { drive, balls, flights, launch, predict, rangeAt, state: S, onBump, OBST, BUMPS, configure, driveSpecs,
+           get dims() { return { hx: HX, hy: HY, track: TRACK, intake: INTAKE_HALF }; },
+           get battery() { return DRV && DRV.battery; } };
 })();

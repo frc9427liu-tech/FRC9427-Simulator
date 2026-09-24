@@ -310,6 +310,11 @@ const ROBOT = (() => {
     d.showModal();
   };
   bar.insertBefore(helpBtn, gear);
+  // 🔧 機構實驗室:單獨調手臂 / 升降台 / 飛輪的馬達、電流、PID(開新視窗,不影響比賽模擬)
+  const labBtn = document.createElement('button');
+  labBtn.id = 'labBtn'; labBtn.textContent = '🔧 機構實驗室'; labBtn.title = '手臂 / 升降台 / 飛輪的馬達、電流、電池、PID + 前饋模擬';
+  labBtn.onclick = () => window.open('mechlab.html', '_blank');
+  bar.insertBefore(labBtn, helpBtn);
   // 🎨 畫質(3D):高 = 環境遮蔽 + 光暈、中 = 光暈、低 = 最省電
   const qSel = document.createElement('select');
   qSel.id = 'qualitySel'; qSel.title = '3D 畫質(卡的話調低)';

@@ -57,4 +57,11 @@ P.configure({ parts: { intake: { type: 'none' }, shooter: { type: 'none' } } });
 assert.ok(!P.hasIntake && !P.canShoot, '沒有 Intake / Shooter');
 P.configure(null);
 
+// 底盤前後反過來:往前推會往後開,而且左輪出力比較大時一樣往同一邊轉
+P.configure({ drive: { reverse: true } });
+Object.assign(ctx.pose, { x: 8, y: 2, th: 0 }); Object.assign(P.state, { vL: 0, vR: 0, v: 0, w: 0 });
+for (let i = 0; i < 30; i++) P.drive(1, 1, 1 / 60);
+assert.ok(ctx.pose.x < 8 - 0.1, `反向後往前推應該往後開:x = ${ctx.pose.x}`);
+P.configure(null);
+
 console.log('✅ 底盤物理測試全部通過');

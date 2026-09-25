@@ -1146,7 +1146,7 @@ function updateBalls(s) {
   const n = Math.min(fb.length, FIELD_CAP);
   for (let i = 0; i < n; i++) {
     const b = fb[i];
-    dummy.position.set(b.x, BALL_R, b.y);
+    dummy.position.set(b.x, b.h != null ? Math.max(BALL_R, b.h) : BALL_R, b.y);   // 物理引擎算出來的高度(堆疊、BUMP 上)
     dummy.rotation.set(b.x * 3.1, 0, b.y * 2.7);    // 依位置轉一點,看起來像滾過
     dummy.scale.setScalar(BALL_R);
     dummy.updateMatrix();
@@ -1271,7 +1271,7 @@ function setupComposer() {
   composer.setSize(W, H);
   composer.addPass(new RenderPass(scene, camera));
   if (o.copy !== false) composer.addPass(new ShaderPass(CopyShader));
-  if (quality === 'high' && o.gtao) {
+  if ((quality === 'high' || quality === 'rt') && o.gtao) {
     // 環境遮蔽:角落、縫隙、車底、HUB 腳下自然變暗(立體感主要來源)
     gtaoPass = new GTAOPass(scene, camera, W, H);
     gtaoPass.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.5, thickness: 1, scale: 1.1, samples: 12 });
@@ -1515,6 +1515,8 @@ function applyKitLayout() {
     const sat = c.b - Math.max(c.r, c.g);
     if (sat > bestSat) { bestSat = sat; bumper = m.material; }
   }
+  R.kitBumperMat = bumper;
+  if (bumper) R.kitBumperColor = bumper.color.clone();
   if (bumper && R.numMat.map) {
     const cv = R.numMat.map.image, g = cv.getContext('2d');
     g.clearRect(0, 0, cv.width, cv.height);
@@ -1543,6 +1545,299 @@ function applyKitLayout() {
   box(0.02, 0.04, 0.02, std(0x2b2f35, 0.45, 0.7), R.robot, -0.29, 0.485, 0.2);
   for (const c of R.robot.children) if (c.isMesh && c.material === R.rslMat && c !== rsl) c.visible = false;
   R.rslHalo.position.set(-0.29, 0.525, 0.2);
+  applyLook();
+}
+
+// ============================================================
+//  🤖 自訂機器人外觀(robotcustom.js 呼叫 View3D.setRobotLook / setRobotModel / setRobotLogo)
+//    - 保險桿顏色、隊號、隊徽圖片 → 畫在保險桿的隊號牌上
+//    - 匯入自己的 3D 模型(Onshape / SolidWorks / Fusion 匯出的 .glb)→ 取代 KitBot 車身
+//    - 車身尺寸改了 → 自己產生對應大小的保險桿
+// ============================================================
+const LOOK = { cfg: {}, gltf: null, logo: null, body: null, bumpers: null, info: null };
+const BUMPER_HEX = { red: '#c8102e', blue: '#1452b8' };
+const bumperHex = c => BUMPER_HEX[c] || (/^#[0-9a-f]{6}$/i.test(c || '') ? c : BUMPER_HEX.red);
+
+// 隊號牌:底色 = 保險桿顏色,左邊隊徽(有的話)、右邊大大的白色隊號
+function drawPlate() {
+  if (!R.numMat || !R.numMat.map) return;
+  const cv = R.numMat.map.image, g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  const c = LOOK.cfg;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = bumperHex(c.bumperColor); g.fillRect(0, 0, w, h);
+  let x0 = 0;
+  if (LOOK.logo) {
+    const im = LOOK.logo, sc = Math.min((h - 16) / im.height, (h - 16) / im.width);
+    const iw = im.width * sc, ih = im.height * sc;
+    g.drawImage(im, 8 + (h - 16 - iw) / 2, (h - ih) / 2, iw, ih);
+    x0 = h;
+  }
+  g.font = '900 160px "Arial Black", Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#ffffff';
+  g.fillText(String(c.teamNumber ?? '9427').slice(0, 6), x0 + (w - x0) / 2, h / 2 + 8, w - x0 - 10);
+  R.numMat.map.needsUpdate = true;
+}
+
+// 自己產生保險桿:沿著車身外圍一圈(布面材質),兩側 + 後面貼隊號牌
+function buildBumpers(L, W) {
+  const g = new THREE.Group();
+  const t = 0.085, h = 0.13, y = 0.1;
+  const fabric = new THREE.CanvasTexture(noiseCanvas(128, 225, 30));
+  fabric.wrapS = fabric.wrapT = THREE.RepeatWrapping; fabric.repeat.set(20, 3); fabric.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshPhysicalMaterial({ color: bumperHex(LOOK.cfg.bumperColor), roughness: 0.8, map: fabric, sheen: 1, sheenRoughness: 0.45 });
+  g.userData.mat = mat;
+  const side = new THREE.BoxGeometry(L, h, t), end = new THREE.BoxGeometry(t, h, W - 2 * t);
+  mesh(side, mat, g, 0, y, W / 2 - t / 2); mesh(side, mat, g, 0, y, -W / 2 + t / 2);
+  mesh(end, mat, g, L / 2 - t / 2, y, 0); mesh(end, mat, g, -L / 2 + t / 2, y, 0);
+  const pw = Math.min(0.62, L * 0.75), ph = pw / 4;
+  const plate = new THREE.PlaneGeometry(pw, ph);
+  mesh(plate, R.numMat, g, 0, y, W / 2 + 0.002, false);
+  mesh(plate, R.numMat, g, 0, y, -W / 2 - 0.002, false).rotation.y = Math.PI;
+  const bw = Math.min(0.56, W * 0.7);
+  mesh(new THREE.PlaneGeometry(bw, bw / 4), R.numMat, g, -L / 2 - 0.002, y, 0, false).rotation.y = -Math.PI / 2;
+  return g;
+}
+
+// 匯入的模型:套旋轉 / 縮放 → 自動縮到車身大小、擺到車子中心、貼地 → 依材質合併(CAD 模型零件很多,不合併會卡)
+function buildCustomBody() {
+  const c = LOOK.cfg, mc = c.model || {};
+  const L = +c.length || 0.86, W = +c.width || 0.86, bump = mc.bumpers !== false ? 0.17 : 0;
+  const wrap = new THREE.Group(), rot = new THREE.Group();
+  const d2r = THREE.MathUtils.degToRad;
+  rot.rotation.set(d2r(+mc.rotX || 0), d2r(+mc.rotY || 0), d2r(+mc.rotZ || 0));
+  rot.scale.setScalar(+mc.scale || 1);
+  rot.add(LOOK.gltf);
+  wrap.add(rot);
+  wrap.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(wrap), sz = box.getSize(new THREE.Vector3());
+  if (mc.autoFit !== false && sz.x > 1e-6 && sz.z > 1e-6) {
+    wrap.scale.setScalar(Math.min((L - bump) / sz.x, (W - bump) / sz.z));
+    wrap.updateMatrixWorld(true);
+    box.setFromObject(wrap);
+  }
+  const ctr = box.getCenter(new THREE.Vector3());
+  wrap.position.set(-ctr.x, -box.min.y + (+mc.lift || 0), -ctr.z);
+  wrap.updateMatrixWorld(true);
+  const meshes = [], bb = new THREE.Box3(), bs = new THREE.Vector3();
+  let tris = 0, dropped = 0;
+  wrap.traverse(o => {
+    if (!o.isMesh) return;
+    const n = (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    // 螺絲、螺帽、墊片、鉚釘:看不到又很耗效能(一顆螺絲的螺紋就幾千個三角形)
+    let q = o, tiny = false;
+    while (q && q !== wrap) { if (/screw|bolt|nut|washer|rivet|shcs|bhcs|fhcs|螺絲|螺帽/i.test(q.name)) { tiny = true; break; } q = q.parent; }
+    const dim = Math.max(...bb.setFromObject(o).getSize(bs).toArray());
+    if (tiny || dim < 0.01 || (n > 15000 && dim < 0.06)) { dropped++; return; }
+    tris += n; meshes.push(o);
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      // 合併時只留位置和法線 → 貼圖會壞掉,改用貼圖的平均色就好(CAD 匯出的模型幾乎都是純色)
+      if (m && m.map) { m.map = null; m.needsUpdate = true; }
+      if (m && m.vertexColors) m.vertexColors = false;
+    }
+  });
+  const body = new THREE.Group(), origin = new THREE.Object3D();
+  origin.updateMatrixWorld(true);
+  const parts = mergeByMaterial(body, meshes, origin);
+  // 三角形太多的模型不投影(陰影要把整台車再畫一次),改用方塊代替
+  if (tris > 150000) {
+    for (const m of parts) m.castShadow = false;
+    const proxy = new THREE.Mesh(new THREE.BoxGeometry(L * 0.9, 0.5, W * 0.9), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+    proxy.position.y = 0.25; proxy.castShadow = true; body.add(proxy);
+  }
+  rot.remove(LOOK.gltf);
+  const fin = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3());
+  LOOK.info = { tris: Math.round(tris), parts: meshes.length, merged: parts.length, dropped,
+                size: [+fin.x.toFixed(3), +fin.z.toFixed(3), +fin.y.toFixed(3)], rawSize: [+sz.x.toFixed(3), +sz.z.toFixed(3), +sz.y.toFixed(3)] };
+  return body;
+}
+
+function disposeTree(o) {
+  o.traverse(m => { if (m.isMesh) { m.geometry.dispose(); } });
+}
+
+function applyLook() {
+  if (!R.robot) return;
+  const c = LOOK.cfg, mc = c.model || {};
+  const custom = mc.source === 'custom' && !!LOOK.gltf;
+  const L = +c.length || 0.86, W = +c.width || 0.86;
+  // 車身
+  if (LOOK.body) { R.robot.remove(LOOK.body); disposeTree(LOOK.body); LOOK.body = null; }
+  if (custom) {
+    try { LOOK.body = buildCustomBody(); R.robot.add(LOOK.body); }
+    catch (e) { console.warn('自訂模型套用失敗', e); LOOK.info = { error: String(e.message || e) }; }
+  } else LOOK.info = null;
+  if (R.kitBody) R.kitBody.visible = !custom;
+  // 保險桿:自訂模型(或 KitBot 以外的尺寸)用自己產生的
+  if (LOOK.bumpers) { R.robot.remove(LOOK.bumpers); disposeTree(LOOK.bumpers); LOOK.bumpers = null; }
+  if (custom && mc.bumpers !== false) { LOOK.bumpers = buildBumpers(L, W); R.robot.add(LOOK.bumpers); }
+  // 原本的隊號牌(KitBot 位置)只在 KitBot 模式顯示
+  for (const ch of R.robot.children) if (ch.isMesh && ch.material === R.numMat) ch.visible = !custom;
+  // KitBot 保險桿換顏色
+  if (R.kitBumperMat) R.kitBumperMat.color.set(c.bumperColor ? bumperHex(c.bumperColor) : '#' + R.kitBumperColor.getHexString());
+  drawPlate();
+  // 模擬用的機構(砲台 / 手臂 / 球堆 / 我們畫的輪子):自訂模型預設藏起來,可以在設定裡打開
+  const mech = mc.showMechs ?? !custom;
+  for (const o of [R.turret, R.intake, R.held]) if (o) o.visible = mech;
+  // 🧩 機構組裝:Intake 寬度 / 伸出長度 / 樞紐高度、Shooter 種類 / 前後位置 / 高度(物理用同一組數字)
+  const parts = c.parts || {}, it = parts.intake || {}, sh = parts.shooter || {};
+  if (R.intake) {
+    if (it.type === 'none') R.intake.visible = false;
+    R.intake.position.set(L / 2 - 0.05, it.pivotH ?? 0.30, 0);
+    R.intake.scale.set((it.reach ?? 0.34) / 0.34, 1, Math.min(it.width ?? 0.66, W - 0.04) / 0.62);
+  }
+  if (R.turret) {
+    if (sh.type === 'none') R.turret.visible = false;
+    R.turret.position.set(sh.x ?? 0.12, sh.h ?? 0.47, 0);
+  }
+  for (const w of R.wheels || []) w.g.visible = !custom || mech;
+  // 接觸陰影跟著車身大小
+  if (R.blob) R.blob.scale.set(L / 0.86, 1, W / 0.86);
+  renderer && (renderer.shadowMap.needsUpdate = true);
+}
+
+
+// ============================================================
+//  🌟 光線追蹤(路徑追蹤,three-gpu-pathtracer)
+// ============================================================
+//  一般畫面(光柵化)是「假」的光影:陰影貼圖、環境遮蔽、反射都是近似。
+//  路徑追蹤是真的模擬光線:每個像素射出很多條光線,在場地裡反彈好幾次 → 真實的柔和陰影、
+//  金屬和壓克力的反射、光從地毯反彈到機器人底部(全域光照)。
+//  代價是非常吃顯示卡,所以做法跟 Blender / Unreal 的「即時預覽」一樣:
+//    - 車子、鏡頭、球在動 → 用一般畫面(流暢)
+//    - 全部停下來 0.3 秒 → 自動切成路徑追蹤,一張一張取樣累加,畫面越來越乾淨(左上角顯示取樣數)
+//    - 一動就馬上切回一般畫面
+//  需要不錯的獨立顯示卡(RTX 等級最好);手機、內顯請用「高」畫質。
+const RT = { tracer: null, loading: null, failed: false, still: 0, sig: '', active: false, built: false, pool: [], env: null, ui: null, hidden: [] };
+const RT_POOL = 640;                     // 光追用的球(一般畫面用 InstancedMesh,路徑追蹤不支援 → 換成一顆一顆的 mesh)
+
+function rtUI(text) {
+  if (!RT.ui) {
+    RT.ui = document.createElement('div');
+    RT.ui.style.cssText = 'position:absolute;right:10px;bottom:10px;z-index:3;padding:4px 10px;border-radius:8px;background:rgba(13,17,23,.75);color:#e6edf3;font:600 12px system-ui,sans-serif;pointer-events:none';
+    container.appendChild(RT.ui);
+  }
+  RT.ui.style.display = text ? '' : 'none';
+  RT.ui.textContent = text || '';
+}
+
+// 路徑追蹤要「等距柱狀」的環境貼圖(PMREM 不行):程序產生一張暗色場館 + 天花板燈 + 兩側聯盟色的 HDR 天空
+function rtEnvironment() {
+  const w = 512, h = 256, data = new Float32Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const v = y / (h - 1), el = (0.5 - v) * Math.PI;            // 仰角:上 +90°、下 −90°
+    for (let x = 0; x < w; x++) {
+      const az = (x / w) * Math.PI * 2;
+      let r = 0.16, g = 0.17, b = 0.2;                           // 場館牆(一般畫面有半球光補亮,光追只靠環境光,要亮一點)
+      if (el > 0.9) {                                            // 天花板燈:幾條很亮的長燈
+        const band = Math.abs(Math.sin(az * 5)) > 0.93 ? 1 : 0;
+        r += band * 9; g += band * 9; b += band * 9.4;
+        r += 0.8; g += 0.82; b += 0.9;
+      } else if (el > 0.25) { r += 0.3; g += 0.32; b += 0.36; }
+      if (Math.abs(el - 0.12) < 0.06) {                          // 聯盟看台的藍 / 紅燈條
+        const s = Math.cos(az);
+        if (s > 0.6) { r += 0.3; g += 0.6; b += 2.2; } else if (s < -0.6) { r += 2.2; g += 0.4; b += 0.3; }
+      }
+      if (el < -0.05) { r = 0.08; g = 0.08; b = 0.09; }         // 地面以下
+      const i = (y * w + x) * 4; data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 1;
+    }
+  }
+  const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.FloatType);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  t.colorSpace = THREE.LinearSRGBColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+
+function rtLoad() {
+  if (RT.loading || RT.failed) return;
+  rtUI('🌟 載入光線追蹤…');
+  RT.loading = import('./pathtracer.js').then(m => {
+    const t = new m.WebGLPathTracer(renderer);
+    t.bounces = 5;                  // 光線最多反彈 5 次(地毯 → 車底 → 眼睛)
+    t.filterGlossyFactor = 0.5;     // 減少亮點雜訊
+    t.minSamples = 1;
+    t.renderDelay = 0;
+    t.fadeDuration = 250;
+    t.renderScale = Math.min(1, 1.25 / curPR);   // 光追的解析度(太高會很慢)
+    t.tiles.set(2, 2);              // 分塊畫,一幀不會卡太久
+    RT.tracer = t;
+    RT.env = rtEnvironment();
+    const geo = new THREE.SphereGeometry(1, 20, 14);
+    for (let i = 0; i < RT_POOL; i++) {
+      const m = new THREE.Mesh(geo, ballMat);
+      m.visible = false; m.userData.rtBall = true;
+      scene.add(m); RT.pool.push(m);
+    }
+  }).catch(e => { console.warn('光線追蹤載入失敗', e); RT.failed = true; rtUI('⚠️ 這台電腦不支援光線追蹤,請改用「高」畫質'); });
+}
+
+// 切到光追:藏起路徑追蹤不支援 / 不需要的東西(InstancedMesh、假陰影圓斑、發光貼片),球換成一顆一顆的 mesh
+function rtEnter(s) {
+  RT.hidden = [];
+  scene.traverse(o => {
+    if (!o.visible || o.userData.rtBall) return;
+    const mats = o.isMesh ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    const basicFx = mats.some(m => m && m.isMeshBasicMaterial && m.transparent);
+    const custom = mats.some(m => !m || !m.color);                 // 自訂 shader(場館光束)路徑追蹤看不懂
+    // 一個物件多個材質(輪框):函式庫會把後面所有物件的材質編號弄錯位(整個場地變成球的黃色),光追時先藏起來
+    const multi = mats.length > 1;
+    if (o.isInstancedMesh || basicFx || custom || multi) { o.visible = false; RT.hidden.push(o); }
+  });
+  // 球:地上的、飛行中的、車上的(位置用一般畫面同一套算法)
+  const pts = [];
+  for (const b of s.fieldBalls || []) pts.push([b.x, b.h != null ? Math.max(BALL_R, b.h) : BALL_R, b.y]);
+  for (const b of s.shots || []) pts.push([b.x, b.z != null ? b.z : BALL_R, b.y]);
+  if (R.held && R.held.visible !== false && RT.hidden.includes(R.held)) {
+    const m4 = new THREE.Matrix4(), p = new THREE.Vector3();
+    R.held.updateMatrixWorld(true);
+    for (let i = 0; i < R.held.count; i++) { R.held.getMatrixAt(i, m4); p.setFromMatrixPosition(m4.premultiply(R.held.matrixWorld)); pts.push([p.x, p.y, p.z]); }
+  }
+  // 池子的大小固定(沒用到的球藏在地底下),場景結構不變 → 路徑追蹤只要「重新套位置」不用整個重建,很快
+  for (let i = 0; i < RT_POOL; i++) {
+    const m = RT.pool[i], q = pts[i];
+    m.visible = true;
+    if (q) { m.position.set(q[0], q[1], q[2]); m.scale.setScalar(BALL_R); } else { m.position.set(0, -50, 0); m.scale.setScalar(0.001); }
+  }
+  RT.envSave = scene.environment; RT.bgSave = scene.background; RT.fogSave = scene.fog;
+  scene.environment = RT.env; scene.fog = null;
+  if (!RT.built) rtUI('🌟 光線追蹤準備中(第一次要建立場地的加速結構,約幾秒)…');
+  RT.tracer.setScene(scene, camera);
+  RT.built = true;
+  RT.active = true;
+}
+function rtExit() {
+  if (!RT.active) return;
+  for (const o of RT.hidden) o.visible = true;
+  for (const m of RT.pool) m.visible = false;
+  scene.environment = RT.envSave; scene.background = RT.bgSave; scene.fog = RT.fogSave;
+  RT.active = false;
+  rtUI('');
+}
+// 場景有沒有在動:車的位置、鏡頭、地上的球、飛行中的球
+function rtSignature(s) {
+  const p = s.pose || {}, c = camera.position, q = camera.quaternion;
+  let ballMove = 0;
+  for (const b of s.fieldBalls || []) ballMove += Math.abs(b.vx || 0) + Math.abs(b.vy || 0);
+  return [p.x, p.y, p.th, c.x, c.y, c.z, q.x, q.y, q.z, q.w, s.arm, s.turret].map(v => (v || 0).toFixed(3)).join(',')
+    + `|${(s.shots || []).length}|${ballMove > 0.2 ? 'm' : 's'}|${(s.fieldBalls || []).length}|${s.held}`;
+}
+// 回傳 true = 這一幀已經用光追畫好了
+function renderRT(s, dt) {
+  if (!RT.tracer) { if (!RT.failed) rtLoad(); return false; }
+  const sig = rtSignature(s);
+  if (sig !== RT.sig) { RT.sig = sig; RT.still = 0; if (RT.active) { rtExit(); RT.tracer.reset(); } return false; }
+  RT.still += dt;
+  if (RT.still < 0.3) return false;
+  if (!RT.active) {
+    try { rtEnter(s); }
+    catch (e) {                          // 出錯就把藏起來的東西放回去,改用一般畫面,不要每一幀都重試
+      console.warn('光線追蹤失敗', e); RT.active = true; rtExit(); RT.failed = true;
+      RT.tracer = null; rtUI('⚠️ 光線追蹤出錯,暫時改用一般畫面'); return false;
+    }
+  }
+  RT.tracer.renderSample();
+  rtUI(`🌟 光線追蹤 · ${Math.floor(RT.tracer.samples)} 取樣`);
+  return true;
 }
 
 // ---- 對外介面 ----
@@ -1567,6 +1862,7 @@ window.View3D = {
     cv.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;';
     el.appendChild(cv);
     build();
+    applyLook();
     resize(el.clientWidth, el.clientHeight);
     setupComposer();
     new ResizeObserver(() => resize(el.clientWidth, el.clientHeight)).observe(el);
@@ -1578,7 +1874,7 @@ window.View3D = {
     let dt = lastT === null ? 1 / 60 : (t - lastT) / 1000;
     lastT = t;
     dt = clamp(dt, 0, 0.1);
-    adaptQuality(dt);
+    if (quality !== 'rt') adaptQuality(dt);
     updateRobot(s, t, dt);
     updateHubs(s, t);
     updateBoard(s, t);
@@ -1587,14 +1883,17 @@ window.View3D = {
     updateFx(s, dt);
     updateCamera(s, dt);
     if ((frameNo++ & 1) === 0) renderer.shadowMap.needsUpdate = true;
-    if (composer && !debugCam) composer.render(); else renderer.render(scene, camera);
+    if (quality === 'rt' && !debugCam && renderRT(s, dt)) { /* 這一幀由光線追蹤畫 */ }
+    else if (composer && !debugCam) composer.render(); else renderer.render(scene, camera);
   },
   // 畫質選單:'high' | 'mid' | 'low'(使用者手動選的就不會被自動降)
   setQuality(q) {
-    if (!['high', 'mid', 'low'].includes(q)) return;
+    if (!['high', 'mid', 'low', 'rt'].includes(q)) return;
+    if (q !== 'rt' && RT.active) rtExit();
+    if (q !== 'rt') rtUI('');
     quality = q; qualityPinned = true;
     try { localStorage.setItem('sim-quality', q); } catch {}
-    if (renderer) { if (q === 'high' && curPR < basePR) { curPR = basePR; renderer.setPixelRatio(curPR); resize(W, H); } setupComposer(); }
+    if (renderer) { if ((q === 'high' || q === 'rt') && curPR < basePR) { curPR = basePR; renderer.setPixelRatio(curPR); resize(W, H); } setupComposer(); }
   },
   get quality() { return quality; },
   setCamera(mode) {
@@ -1602,6 +1901,21 @@ window.View3D = {
     camMode = mode;
     camBlend = 0;
   },
+  // 🤖 自訂機器人:外觀設定(隨時可以呼叫,3D 還沒開也會記住,開了再套用)
+  setRobotLook(cfg) { LOOK.cfg = cfg || {}; applyLook(); return LOOK.info; },
+  // 匯入 .glb / .gltf(ArrayBuffer);null = 回到 KitBot。回傳 Promise<模型資訊>
+  setRobotModel(buf) {
+    if (!buf) { LOOK.gltf = null; applyLook(); return Promise.resolve(null); }
+    return new Promise((ok, fail) => {
+      new GLTFLoader().parse(buf, '', g => { LOOK.gltf = g.scene; applyLook(); ok(LOOK.info); },
+        e => fail(new Error('看不懂這個模型檔(' + ((e && e.message) || e) + ')。請匯出成 .glb')));
+    });
+  },
+  // 隊徽圖片(HTMLImageElement / ImageBitmap / canvas);null = 拿掉
+  setRobotLogo(img) { LOOK.logo = img || null; drawPlate(); },
+  get robotModelInfo() { return LOOK.info; },
+  _rt() { return RT; },     // 除錯用:光線追蹤狀態
+  _scene() { return scene; },
   _info() { return renderer && { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, pr: curPR, progs: renderer.info.programs.length }; },   // 除錯用
   // 除錯用:把場景畫進 32 位元浮點畫布,數有幾個像素是 NaN / 無限大 / 超過半精度上限(後製黑屏的嫌疑犯)
   _fx(o) { fxTest = o; setupComposer(); },   // 除錯用:測試後製 {type:'half'|'float', samples, gtao, bloom},null = 關

@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FRC 機構實驗室</title>
+<meta name="theme-color" content="#0d1117">
+<link rel="icon" href="icon.svg">
+<!--
+  🔧 FRC 機構實驗室:手臂 / 升降台 / 飛輪的馬達、電流、電池、PID + 前饋模擬
+  物理和控制:mechlab-core.js(可以單獨在 node 跑測試)
+  畫面:mechlab-ui.js(動畫、圖表、參數面板)
+-->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --panel2: #f0f1f3;
+  --line: #d8dbe0;
+  --grid: #e6e8eb;
+  --text: #0b0b0b;
+  --text2: #52514e;
+  --muted: #7a7973;
+  --accent: #2a78d6;
+  --s1: #2a78d6;      /* 系列 1:藍 */
+  --s2: #eb6834;      /* 系列 2:橘 */
+  --s3: #1baf7a;      /* 系列 3:青 */
+  --ref: #7a7973;     /* 參考線(目標、上限):灰色虛線 */
+  --good: #1a7f37;
+  --warn: #9a6700;
+  --bad: #cf222e;
+  --metal: #9aa3ad;
+  --metal2: #5f6b77;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --line: #30363d; --grid: #21262d;
+    --text: #e6edf3; --text2: #c3c2b7; --muted: #8b949e; --accent: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --ref: #8b949e;
+    --good: #3fb950; --warn: #d29922; --bad: #f85149; --metal: #8b96a3; --metal2: #4a5561;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --line: #30363d; --grid: #21262d;
+  --text: #e6edf3; --text2: #c3c2b7; --muted: #8b949e; --accent: #3987e5;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --ref: #8b949e;
+  --good: #3fb950; --warn: #d29922; --bad: #f85149; --metal: #8b96a3; --metal2: #4a5561;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif; }
+button, select, input { font: inherit; color: inherit; }
+button { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.on, button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+select, input[type=number] { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; }
+input[type=number] { width: 84px; }
+a { color: var(--accent); }
+
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+.top h1 { font-size: 17px; margin: 0 6px 0 0; white-space: nowrap; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tabs button { padding: 5px 12px; }
+.spacer { flex: 1; }
+.run { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.grid { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.15fr); gap: 14px; padding: 14px 16px 24px; max-width: 1600px; margin: 0 auto; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+.card h2 { font-size: 13px; margin: 0 0 8px; color: var(--text2); font-weight: 600; }
+
+.stage { position: relative; padding: 0; overflow: hidden; }
+#anim { display: block; width: 100%; height: clamp(260px, 42vh, 460px); }
+.badges { position: absolute; left: 10px; top: 10px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; }
+.badge { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); width: fit-content; }
+.badge.warn { border-color: var(--warn); color: var(--warn); }
+.badge.bad { border-color: var(--bad); color: var(--bad); }
+.stage-note { position: absolute; right: 10px; bottom: 8px; font-size: 12px; color: var(--muted); text-align: right; pointer-events: none; }
+
+.targets { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.targets .lbl { color: var(--text2); font-weight: 600; margin-right: 2px; }
+.targets label { display: inline-flex; align-items: center; gap: 4px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.tile .k { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tile .v small { font-size: 12px; font-weight: 500; color: var(--text2); margin-left: 2px; }
+.tile.warn .v { color: var(--warn); }
+.tile.bad .v { color: var(--bad); }
+
+details.sec { border-top: 1px solid var(--line); padding: 8px 0 4px; }
+details.sec:first-child { border-top: 0; padding-top: 0; }
+details.sec > summary { cursor: pointer; font-weight: 600; color: var(--text); list-style: none; display: flex; align-items: center; gap: 6px; }
+details.sec > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+details.sec[open] > summary::before { transform: rotate(90deg); }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 14px; margin-top: 8px; }
+.field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.field > span { font-size: 12px; color: var(--text2); }
+.field > span em { font-style: normal; color: var(--muted); }
+.field .row { display: flex; align-items: center; gap: 6px; }
+.field .row input[type=number] { flex: 1; min-width: 0; }
+.field .row .u { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.help { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.spec { font-size: 12px; color: var(--text2); background: var(--panel2); border-radius: 8px; padding: 6px 9px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+
+.charts-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.charts-head h2 { margin: 0; }
+.chart { position: relative; }
+.chart .hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.chart .ttl { font-size: 13px; font-weight: 600; }
+.chart .ttl small { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text2); }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.legend i.dash { border-top-style: dashed; }
+.chart canvas { display: block; width: 100%; height: 150px; touch-action: pan-y; }
+@media (max-width: 900px) { .chart canvas { height: 130px; } }
+#tip { position: fixed; z-index: 20; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.25); display: none; font-variant-numeric: tabular-nums; }
+#tip b { display: block; margin-bottom: 2px; }
+#tip .r { display: flex; align-items: center; gap: 6px; }
+#tip .r i { width: 10px; height: 0; border-top: 2px solid; }
+#tip .r span:last-child { margin-left: auto; padding-left: 10px; font-weight: 600; }
+.foot { color: var(--muted); font-size: 12px; text-align: center; padding: 0 16px 20px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>🔧 FRC 機構實驗室</h1>
+  <div class="tabs" id="tabs">
+    <button data-kind="arm">A · 旋轉手臂</button>
+    <button data-kind="elevator">B · 升降台</button>
+    <button data-kind="flywheel">C · 飛輪發射器</button>
+  </div>
+  <span class="spacer"></span>
+  <div class="run">
+    <button id="playBtn" class="go">⏸ 暫停</button>
+    <button id="resetBtn" title="機構回到起點、清除圖表">↺ 重置</button>
+    <select id="speedSel" title="模擬速度">
+      <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
+    </select>
+    <a href="index.html" id="backLink" title="回到比賽模擬器">← 模擬器</a>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="col">
+    <div class="card stage">
+      <canvas id="anim" aria-label="機構動畫"></canvas>
+      <div class="badges" id="badges"></div>
+      <div class="stage-note" id="stageNote"></div>
+    </div>
+    <div class="card targets" id="targets"></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="card" id="params"></div>
+  </section>
+
+  <section class="col">
+    <div class="card">
+      <div class="charts-head">
+        <h2>即時遙測</h2>
+        <span class="spacer"></span>
+        <label style="font-size:12px;color:var(--text2)">時間範圍
+          <select id="winSel"><option value="5">5 秒</option><option value="10" selected>10 秒</option><option value="20">20 秒</option><option value="30">30 秒</option></select>
+        </label>
+        <button id="csvBtn" title="把圖表資料存成 CSV(可以用 Excel 開)">⬇ CSV</button>
+      </div>
+    </div>
+    <div class="card chart" id="c1"></div>
+    <div class="card chart" id="c2"></div>
+    <div class="card chart" id="c3"></div>
+    <div class="card chart" id="c4"></div>
+  </section>
+</main>
+<div id="tip"></div>
+<p class="foot">控制迴圈 50 Hz(dt = 0.02 s,跟 roboRIO 一樣)· 物理用子步進歐拉法 · 馬達規格 = 官方 12 V 數據 · 溫度與電池內阻為估算值</p>
+
+<script src="mechlab-core.js"></script>
+<script src="mechlab-ui.js"></script>
+</body>
+</html>

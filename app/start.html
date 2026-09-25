@@ -44,6 +44,7 @@
       <h2>開始</h2>
       <button class="big" id="open">📂 開啟機器人專案資料夾</button>
       <button class="big" id="help" style="margin-top:10px;background:var(--panel2);border:1px solid var(--line)">📖 新手教學(電腦操作)</button>
+      <button class="big" id="lab" style="margin-top:10px;background:var(--panel2);border:1px solid var(--line)">🔧 機構實驗室(手臂 / 升降台 / 飛輪,不用開專案)</button>
       <div class="tip">
         選 VS Code 裡打開的那個資料夾就對了(裡面有 <code>gradlew.bat</code> 和 <code>build.gradle</code>)。<br>
         第一次開要編譯,大約 30 秒。<br>
@@ -92,6 +93,7 @@
   }
   document.getElementById('open').onclick = async () => open(await sim.pickFolder());
   document.getElementById('help').onclick = () => sim.openHelp();
+  document.getElementById('lab').onclick = () => sim.openLab();
   sim.recents().then(render);
 </script>
 </body>

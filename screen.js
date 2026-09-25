@@ -29,7 +29,7 @@ let held = 3, score = 0, missed = 0;
 let wheelL = 0, wheelR = 0, spin = 0, flySpin = 0, lastT = performance.now(), lastShot = 0, lastMark = 0;
 let follow = true;
 const cam = { x: pose.x, y: pose.y, scale: 0 };
-const MAX_HELD = 40;      // 車上最多幾顆(2026 的機器人都是大球籃)
+let MAX_HELD = 40;        // 車上最多幾顆(2026 的機器人都是大球籃;🧩 機構組裝可以改)
 const FIRE_MS = 100;      // 連發間隔(毫秒)
 const HUB_TOP = 1.83;     // HUB 入口高度(公尺,官方模型漏斗頂 = 72 英寸)
 let lastIntake = 0, lastIntakePop = 0, lastEmptyPop = 0, lastPublish = 0;
@@ -39,7 +39,10 @@ function resetGame() {
   pose.x = 2.2; pose.y = FIELD_H / 2; pose.th = 0;
   held = 8; score = 0; missed = 0; shots = []; marks = []; pops = [];
   fieldBalls = [];
-  if (typeof PHYS !== 'undefined') Object.assign(PHYS.state, { vL: 0, vR: 0, v: 0, w: 0 });
+  if (typeof PHYS !== 'undefined') {
+    Object.assign(PHYS.state, { vL: 0, vR: 0, v: 0, w: 0, minV: undefined });
+    if (PHYS.battery) PHYS.battery.reset();
+  }
   // 官方場地模型載入後,開場的球照官方擺法放(456 顆)。
   // 場外補給站(OUTPOST)裡的球標成 fixed:物理不算它們,車也碰不到
   const staged = window.View3D && window.View3D.stagedFuel;
@@ -130,7 +133,7 @@ function frameBody(t) {
   // 哪個數值是哪個機構,由 robotmap.js 決定(⚙️ 機構設定;LEO 有內建預設)
   const L = ROBOT.driveL(), R = ROBOT.driveR();
   const arm = ROBOT.armFrac();
-  const turret = ROBOT.turretRad();
+  const turret = PHYS.turretFixed ? 0 : ROBOT.turretRad();   // 固定式 Shooter:不管程式怎麼轉都朝正前方
   const fly = ROBOT.fly(), orbit = ROBOT.orbit(), idx = ROBOT.idx();
   const rollerDir = ROBOT.intakeDir(state[1].buttons);
 
@@ -168,8 +171,8 @@ function frameBody(t) {
   const aim = pose.th + turret;
   // 落點預測:飛輪有在轉就算出球會掉在哪,畫一個圈 + 告訴駕駛要往前還往後
   // (以前看不出射程,從起點射 8 顆全沒進也不知道為什麼)
-  const aimPt = Math.abs(fly) > 5 ? predictLanding(aim, fly) : null;
-  if (Math.abs(fly) > 5 && ROBOT.feeding() && t - lastShot > FIRE_MS) {
+  const aimPt = PHYS.canShoot && Math.abs(fly) > 5 ? predictLanding(aim, fly) : null;
+  if (PHYS.canShoot && Math.abs(fly) > 5 && ROBOT.feeding() && t - lastShot > FIRE_MS) {
     lastShot = t;
     if (held > 0) {
       held--;
@@ -345,9 +348,18 @@ function updateHud() {
   // 但程式還在一直叫馬達轉 → 真車會撞擋塊、燒馬達。所以提醒要開軟限位,而不是只說「轉了 67 圈」
   if (armOver) warns.push(`💥 手臂撞到擋塊了,程式還在叫馬達轉(數值 ${armOver.toFixed(1)})→ 真車會撞壞/燒馬達,LEO 要開軟限位`);
   if (Math.abs(turDeg) > 100) warns.push(`⚠️ 砲台轉了 ${turDeg.toFixed(0)}°,超過極限!線會被扯斷`);
+  // 電池 / 底盤電流(physics.js 的真實馬達模型)
+  const ps = PHYS.state;
+  let batt = '';
+  if (ps.vBus !== undefined) {
+    const vc = ps.vBus < 8 ? '#f85149' : ps.vBus < 10 ? '#d29922' : '#8b98a5';
+    batt = `<div style="color:${vc}">🔋 ${ps.vBus.toFixed(1)} V &nbsp; ⚡ 底盤 ${Math.round(ps.current || 0)} A` +
+      `${ps.slip ? ' &nbsp; 🛞 打滑' : ''}${ps.limited ? ' &nbsp; 限流中' : ''}</div>`;
+    if (ps.brownout) warns.push('🔋 Brownout!電池電壓掉到 6.75 V 以下,roboRIO 把馬達關掉了 → 加電流限制,或換顆電池');
+  }
   hudEl.innerHTML =
     `<div style="color:${enabled ? '#3fb950' : '#8b98a5'}">${modeTxt}・${enabled ? '啟用中' : '停用'}</div>` +
-    `<div>🏀 車上 ${held}/${MAX_HELD} &nbsp; 🎯 進球 ${score} &nbsp; ✖ ${missed}</div>` +
+    `<div>🏀 車上 ${held}/${MAX_HELD} &nbsp; 🎯 進球 ${score} &nbsp; ✖ ${missed}</div>` + batt +
     aimHint(lastAim) +
     warns.map(w => `<div class="warn">${w}</div>`).join('');
 }
@@ -370,8 +382,13 @@ function drawRobot(st, px) {
   ctx.translate(pose.x, pose.y);
   ctx.rotate(-pose.th);
 
+  // 車身大小、保險桿顏色、隊號:🤖 自訂機器人(robotcustom.js)
+  const dims = PHYS.dims || { hx: 0.43, hy: 0.43 }, bx = dims.hx, by = dims.hy;
+  const body = typeof BODY !== 'undefined' ? BODY.config : null;
+  const team = String((body && body.teamNumber) || '9427');
+  const bumperCol = body && body.bumperColor === 'blue' ? (enabled ? '#1f6feb' : '#1a4b99') : (enabled ? '#c8102e' : '#9b1c2c');
   // 影子
-  ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(-0.43 + 0.06, -0.43 + 0.08, 0.86, 0.86, 0.05); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(-bx + 0.06, -by + 0.08, 2 * bx, 2 * by, 0.05); ctx.fill();
 
   // Intake(車頭,x 正方向):放下越多伸越長
   const armLen = 0.06 + arm * 0.28;
@@ -401,13 +418,13 @@ function drawRobot(st, px) {
   ctx.fillStyle = '#2b3138'; ctx.fillRect(-0.33, -0.23, 0.66, 0.46);
   ctx.fillStyle = '#6e7781'; ctx.fillRect(-0.02, -0.23, 0.04, 0.46); ctx.fillRect(-0.33, -0.02, 0.66, 0.04);
 
-  // 保險桿(紅色,印隊號)
-  ctx.fillStyle = enabled ? '#c8102e' : '#9b1c2c';
-  const b = 0.43, t = 0.085;
-  roundRect(-b, -b, 2 * b, t, 0.03); ctx.fill(); roundRect(-b, b - t, 2 * b, t, 0.03); ctx.fill();
-  roundRect(-b, -b, t, 2 * b, 0.03); ctx.fill(); roundRect(b - t, -b, t, 0.1, 0.02); ctx.fill(); roundRect(b - t, b - 0.1, t, 0.1, 0.02); ctx.fill();
-  worldText('9427', 0, -b + t / 2, 0.07, '#fff', 'bold', 'Arial');
-  worldText('9427', 0, b - t / 2, 0.07, '#fff', 'bold', 'Arial');
+  // 保險桿(聯盟色,印隊號)
+  ctx.fillStyle = bumperCol;
+  const t = 0.085;
+  roundRect(-bx, -by, 2 * bx, t, 0.03); ctx.fill(); roundRect(-bx, by - t, 2 * bx, t, 0.03); ctx.fill();
+  roundRect(-bx, -by, t, 2 * by, 0.03); ctx.fill(); roundRect(bx - t, -by, t, 0.1, 0.02); ctx.fill(); roundRect(bx - t, by - 0.1, t, 0.1, 0.02); ctx.fill();
+  worldText(team, 0, -by + t / 2, 0.07, '#fff', 'bold', 'Arial');
+  worldText(team, 0, by - t / 2, 0.07, '#fff', 'bold', 'Arial');
 
   // Orbit 轉盤 + 車上的球
   ctx.fillStyle = '#161b22'; ctx.beginPath(); ctx.arc(-0.08, 0, 0.19, 0, 7); ctx.fill();
@@ -451,7 +468,8 @@ function drawSideView(W, H, d, st) {
   const gx = x0 + w * 0.3, gy = y0 + h * 0.88;
   ctx.strokeStyle = '#4a5767'; ctx.lineWidth = 1 * d; lineP(x0 + 6 * d, gy, x0 + w - 6 * d, gy);
   // 車身
-  ctx.fillStyle = '#c8102e'; ctx.fillRect(gx - 0.43 * u, gy - 0.2 * u, 0.86 * u, 0.1 * u);
+  const sb = typeof BODY !== 'undefined' ? BODY.config : null, hx = (PHYS.dims && PHYS.dims.hx) || 0.43;
+  ctx.fillStyle = sb && sb.bumperColor === 'blue' ? '#1f6feb' : '#c8102e'; ctx.fillRect(gx - hx * u, gy - 0.2 * u, 2 * hx * u, 0.1 * u);
   ctx.fillStyle = '#2b3138'; ctx.fillRect(gx - 0.36 * u, gy - 0.45 * u, 0.72 * u, 0.25 * u);
   for (const wx of [-0.27, 0, 0.27]) {
     ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(gx + wx * u, gy - 0.05 * u, 0.05 * u, 0, 7); ctx.fill();

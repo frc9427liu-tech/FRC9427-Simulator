@@ -1,7 +1,7 @@
 {
   "name": "frc-simulator",
   "productName": "9427 FRC 模擬器",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "FRC 機器人模擬器:打開任何 WPILib 專案,用搖桿操作、看 3D 畫面",
   "main": "main.js",
   "author": "FRC 9427",

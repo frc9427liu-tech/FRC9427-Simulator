@@ -118,6 +118,7 @@ const ROBOT = (() => {
     get demoOK() { return !!cfg.demo; },
     catalog,
     openSettings,
+    save: c => save(c),
   };
 
   // ---------- 目前能選的訊號(給設定畫面) ----------
@@ -182,6 +183,7 @@ const ROBOT = (() => {
       project = { name: 'LEO', path: '', canSwitch: false, api: false, fromFile: false };
     }
     relabel();
+    window.dispatchEvent(new Event('robot-config-loaded'));      // 🤖 自訂機器人(robotcustom.js)等這個再套用
     const sw = document.getElementById('switchProj');
     if (sw) sw.style.display = project.canSwitch ? '' : 'none';
   }
@@ -310,11 +312,16 @@ const ROBOT = (() => {
     d.showModal();
   };
   bar.insertBefore(helpBtn, gear);
+  // 🔧 機構實驗室:單獨調手臂 / 升降台 / 飛輪的馬達、電流、PID(開新視窗,不影響比賽模擬)
+  const labBtn = document.createElement('button');
+  labBtn.id = 'labBtn'; labBtn.textContent = '🔧 機構實驗室'; labBtn.title = '手臂 / 升降台 / 飛輪的馬達、電流、電池、PID + 前饋模擬';
+  labBtn.onclick = () => window.open('mechlab.html', '_blank');
+  bar.insertBefore(labBtn, helpBtn);
   // 🎨 畫質(3D):高 = 環境遮蔽 + 光暈、中 = 光暈、低 = 最省電
   const qSel = document.createElement('select');
   qSel.id = 'qualitySel'; qSel.title = '3D 畫質(卡的話調低)';
   qSel.style.cssText = 'background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:13px';
-  qSel.innerHTML = '<option value="high">🎨 畫質:高</option><option value="mid">🎨 畫質:中</option><option value="low">🎨 畫質:低</option>';
+  qSel.innerHTML = '<option value="rt">🌟 畫質:光線追蹤(停下來就會變逼真,要好顯卡)</option><option value="high">🎨 畫質:高</option><option value="mid">🎨 畫質:中</option><option value="low">🎨 畫質:低</option>';
   try { qSel.value = localStorage.getItem('sim-quality') || 'high'; } catch {}
   qSel.onchange = () => { if (window.View3D && View3D.setQuality) View3D.setQuality(qSel.value); };
   bar.insertBefore(qSel, helpBtn);

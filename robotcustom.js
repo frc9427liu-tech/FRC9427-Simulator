@@ -15,7 +15,7 @@ const BODY = (() => {
   const DEF = {
     teamNumber: '9427', bumperColor: 'red',
     length: 0.86, width: 0.86,
-    drive: { motor: 'krakenX60', perSide: 2, ratio: 7.31, wheelIn: 4, mass: 60, mu: 1.1, efficiency: 0.97, statorLimit: 80, supplyLimit: 60 },
+    drive: { motor: 'krakenX60', perSide: 2, ratio: 7.31, wheelIn: 4, mass: 60, mu: 1.1, efficiency: 0.97, statorLimit: 80, supplyLimit: 60, reverse: false },
     battery: { openV: 12.6, resistance: 0.02 },
     model: { source: 'kitbot', fileName: '', rotX: 0, rotY: 0, rotZ: 0, scale: 1, autoFit: true, lift: 0, bumpers: true, showMechs: null },
     // 🧩 機構組裝:位置都是「相對車中心」,x 往前為正(公尺)
@@ -235,7 +235,10 @@ const BODY = (() => {
             ${num('drive.mu', '輪胎摩擦係數', '', 'step="0.05" min="0.3" max="2"', '防滑胎約 1.1、全向輪約 0.7')}
             ${num('drive.statorLimit', '定子電流限制(每顆)', 'A', 'step="5" min="0"', '0 = 不限制')}
             ${num('drive.supplyLimit', '供電電流限制(每顆)', 'A', 'step="5" min="0"', '0 = 不限制')}
+            <label class="rc-f"><span>方向</span><span class="rc-r"><label><input type="checkbox" data-p="drive.reverse"${work.drive.reverse ? ' checked' : ''}>
+              底盤前後反過來</label></span></label>
           </div>
+          <div class="rc-info" style="margin-top:6px">🧭 搖桿往前推,車子卻往 Intake 的反方向開?勾「底盤前後反過來」(左右輪會自動交換,轉彎方向不會跟著反)。</div>
           <div class="rc-info" id="rcDriveInfo"></div>
         </div>
 

@@ -53,6 +53,7 @@ const PHYS = (() => {
     MUZZLE_Z = Math.max(0.2, Math.min(1.8, (sh.h ?? 0.47) + 0.08));
     if (!ML) { DRV = null; return; }
     const d = Object.assign({}, DRIVE_DEFAULT, body.drive || {});
+    REVERSE = !!d.reverse;
     const b = Object.assign({}, BATT_DEFAULT, body.battery || {});
     const motor = ML.MOTORS[d.motor] || ML.MOTORS.krakenX60;
     const lim = { statorLimit: d.statorLimit, supplyLimit: d.supplyLimit };
@@ -320,7 +321,10 @@ const PHYS = (() => {
     // 被拿走的球(吸進車裡、換新的一局)→ 從引擎移除
     for (const [rb, b] of ENG.balls) if (!seen.has(rb)) { ENG.balls.delete(rb); w.removeRigidBody(rb); b._rb = null; }
   }
+  let REVERSE = false;              // 🤖 自訂機器人:底盤前後反過來(程式的「前」是模型的後面時用)
   function drive(L, R, dt) {
+    // 前後對調:往前變往後,而且左右輪也要交換(不然轉彎方向會跟著反掉)
+    if (REVERSE) { const l = L; L = -R; R = -l; }
     if (ENG.ready && DRV) return engineDrive(L, R, dt);
     const slow = onBump(pose.x, pose.y) ? BUMP_SLOW : 1;
     if (DRV) {

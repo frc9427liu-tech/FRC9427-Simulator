@@ -1773,6 +1773,7 @@ function rtLoad() {
 
 // 切到光追:藏起路徑追蹤不支援 / 不需要的東西(InstancedMesh、假陰影圓斑、發光貼片),球換成一顆一顆的 mesh
 function rtEnter(s) {
+  RT.enters = (RT.enters || 0) + 1;
   RT.hidden = [];
   scene.traverse(o => {
     if (!o.visible || o.userData.rtBall) return;
@@ -1813,30 +1814,47 @@ function rtExit() {
   RT.active = false;
   rtUI('');
 }
-// 場景有沒有在動:車的位置、鏡頭、地上的球、飛行中的球
-function rtSignature(s) {
-  const p = s.pose || {}, c = camera.position, q = camera.quaternion;
-  let ballMove = 0;
-  for (const b of s.fieldBalls || []) ballMove += Math.abs(b.vx || 0) + Math.abs(b.vy || 0);
-  return [p.x, p.y, p.th, c.x, c.y, c.z, q.x, q.y, q.z, q.w, s.arm, s.turret].map(v => (v || 0).toFixed(3)).join(',')
-    + `|${(s.shots || []).length}|${ballMove > 0.2 ? 'm' : 's'}|${(s.fieldBalls || []).length}|${s.held}`;
+// 場景有沒有「真的」在動。
+// 以前用 toFixed(3) 比對字串:物理引擎和跟車鏡頭每一幀都有小於 1 公釐的晃動 → 一直被當成在動 →
+// 光追剛開始就被打斷、跟一般畫面來回切換(使用者 RTX 3050 上看到的「亂閃、一直 0 取樣」)。
+// 現在:跟「開始光追那一刻」的狀態比,超過明確的門檻才算動(1 公分、0.6 度、有球在滾、有球在飛…)
+function rtSnapshot(s) {
+  const p = s.pose || {};
+  let rolling = 0;
+  for (const b of s.fieldBalls || []) if ((b.vx || 0) ** 2 + (b.vy || 0) ** 2 > 0.0064) rolling++;   // > 8 cm/s
+  return { x: p.x || 0, y: p.y || 0, th: p.th || 0, arm: s.arm || 0, turret: s.turret || 0, cam: camMode,
+           shots: (s.shots || []).length, n: (s.fieldBalls || []).length, held: s.held || 0, rolling };
+}
+function rtMoved(a, b) {
+  if (!a || !b) return true;
+  return Math.hypot(a.x - b.x, a.y - b.y) > 0.01 || Math.abs(wrapPi(a.th - b.th)) > 0.01
+    || Math.abs(a.arm - b.arm) > 0.02 || Math.abs(a.turret - b.turret) > 0.01 || a.cam !== b.cam
+    || b.shots > 0 || a.n !== b.n || a.held !== b.held || b.rolling > 0;
 }
 // 回傳 true = 這一幀已經用光追畫好了
 function renderRT(s, dt) {
   if (!RT.tracer) { if (!RT.failed) rtLoad(); return false; }
-  const sig = rtSignature(s);
-  if (sig !== RT.sig) { RT.sig = sig; RT.still = 0; if (RT.active) { rtExit(); RT.tracer.reset(); } return false; }
-  RT.still += dt;
-  if (RT.still < 0.3) return false;
-  if (!RT.active) {
+  const snap = rtSnapshot(s);
+  if (RT.active) {
+    if (rtMoved(RT.ref, snap)) {                         // 真的動了 → 切回一般畫面
+      rtExit(); RT.tracer.reset(); RT.ref = snap; RT.calm = 0; return false;
+    }
+  } else {
+    if (rtMoved(RT.ref, snap)) { RT.ref = snap; RT.calm = 0; return false; }
+    RT.calm = (RT.calm || 0) + dt;
+    if (RT.calm < 0.5) return false;                     // 停穩 0.5 秒才開始(跟車鏡頭也要先停好)
     try { rtEnter(s); }
     catch (e) {                          // 出錯就把藏起來的東西放回去,改用一般畫面,不要每一幀都重試
       console.warn('光線追蹤失敗', e); RT.active = true; rtExit(); RT.failed = true;
       RT.tracer = null; rtUI('⚠️ 光線追蹤出錯,暫時改用一般畫面'); return false;
     }
+    RT.ref = snap; RT.activeT = 0;
   }
+  RT.activeT += dt;
   RT.tracer.renderSample();
-  rtUI(`🌟 光線追蹤 · ${Math.floor(RT.tracer.samples)} 取樣`);
+  const n = RT.tracer.samples;
+  if (RT.tracer.isCompiling) rtUI('🌟 光線追蹤 · 第一次要編譯顯示卡程式,請稍等…');
+  else rtUI(`🌟 光線追蹤 · ${n < 1 ? n.toFixed(2) : Math.floor(n)} 取樣`);
   return true;
 }
 
@@ -1881,7 +1899,7 @@ window.View3D = {
     updateBalls(s);
     updateAim(s, t);
     updateFx(s, dt);
-    updateCamera(s, dt);
+    if (!(quality === 'rt' && RT.active)) updateCamera(s, dt);   // 光追累積取樣時鏡頭固定,不然會糊
     if ((frameNo++ & 1) === 0) renderer.shadowMap.needsUpdate = true;
     if (quality === 'rt' && !debugCam && renderRT(s, dt)) { /* 這一幀由光線追蹤畫 */ }
     else if (composer && !debugCam) composer.render(); else renderer.render(scene, camera);

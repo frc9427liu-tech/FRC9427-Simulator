@@ -1,4 +1,5 @@
-# 發新版:推一個 v 開頭的 tag(例如 v2.1.0,要跟 app/package.json 的 version 一樣)
+# 發新版:推一個 v 開頭的 tag(例如 v2.1.0,要跟 app/package.json 的 version 一樣),
+# 或在 GitHub 的 Actions 頁面按「Run workflow」(會自動用 app/package.json 的版本建立 tag)
 # → GitHub 的 Windows 電腦自動打包安裝檔 → 發布到 Releases
 # → 大家的「9427 FRC 模擬器」打開時就會自動下載更新
 name: 發布新版(Windows 安裝檔)
@@ -27,6 +28,16 @@ jobs:
         run: |
           V=$(node -p "require('./app/package.json').version")
           if [ "v$V" != "${GITHUB_REF_NAME}" ]; then echo "app/package.json 是 $V,tag 是 ${GITHUB_REF_NAME},要一樣"; exit 1; fi
+      - name: 手動執行時先建立版本 tag(Release 一定要有 tag)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        shell: bash
+        run: |
+          V="v$(node -p "require('./app/package.json').version")"
+          if git ls-remote --exit-code --tags origin "$V" > /dev/null; then
+            echo "tag $V 已經存在,直接發布到它"
+          else
+            git tag "$V" && git push origin "$V"
+          fi
       - name: 安裝
         working-directory: app
         run: npm ci

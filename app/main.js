@@ -209,6 +209,20 @@ ipcMain.handle('open-help', () => {
   helpWin.loadFile(path.join(WEB_DIR, 'help.html'));
 });
 
+// 🔧 機構實驗室(mechlab.html):在 APP 自己的視窗開,不要跳到外部瀏覽器。
+// 不用開機器人專案、不用模擬器也能用(物理全部在網頁裡算),所以起始畫面也有按鈕
+let labWin = null;
+function openLab() {
+  if (labWin && !labWin.isDestroyed()) { labWin.show(); labWin.focus(); return; }
+  labWin = new BrowserWindow({ width: 1400, height: 900, title: '機構實驗室 · ' + TITLE, backgroundColor: '#0d1117', autoHideMenuBar: true,
+                               icon: path.join(WEB_DIR, 'icon.ico') });
+  labWin.on('page-title-updated', e => e.preventDefault());
+  labWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  labWin.on('closed', () => { labWin = null; });
+  labWin.loadFile(path.join(WEB_DIR, 'mechlab.html'));
+}
+ipcMain.handle('open-lab', () => openLab());
+
 ipcMain.handle('recents', () => recents());
 ipcMain.handle('remove-recent', (_e, dir) => { removeRecent(dir); return recents(); });
 ipcMain.handle('pick-folder', async () => {
@@ -294,8 +308,11 @@ async function openProject(dir) {
     win.webContents.on('before-input-event', (e, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
     });
-    // 網頁上的外部連結用瀏覽器開,不要在這個視窗裡開
-    win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+    // 網頁上的外部連結用瀏覽器開,不要在這個視窗裡開;🔧 機構實驗室例外,開在 APP 自己的視窗
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/\/mechlab\.html(\?|#|$)/.test(url)) openLab(); else shell.openExternal(url);
+      return { action: 'deny' };
+    });
     const reveal = () => { if (win && !win.isDestroyed() && !win.isVisible()) win.show(); if (splash && !splash.isDestroyed()) splash.destroy(); splash = null; };
     win.once('ready-to-show', reveal);
     setTimeout(reveal, 6000);    // ready-to-show 偶爾不會來(起始畫面就遇過),最多等 6 秒就直接顯示

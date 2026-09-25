@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld('sim', {
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   openProject: dir => ipcRenderer.invoke('open-project', dir),
   openHelp: () => ipcRenderer.invoke('open-help'),
+  openLab: () => ipcRenderer.invoke('open-lab'),
 });

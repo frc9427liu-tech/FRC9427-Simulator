@@ -18,13 +18,20 @@ const BODY = (() => {
     drive: { motor: 'krakenX60', perSide: 2, ratio: 7.31, wheelIn: 4, mass: 60, mu: 1.1, efficiency: 0.97, statorLimit: 80, supplyLimit: 60 },
     battery: { openV: 12.6, resistance: 0.02 },
     model: { source: 'kitbot', fileName: '', rotX: 0, rotY: 0, rotZ: 0, scale: 1, autoFit: true, lift: 0, bumpers: true, showMechs: null },
+    // 🧩 機構組裝:位置都是「相對車中心」,x 往前為正(公尺)
+    parts: {
+      intake: { type: 'pivot', width: 0.66, reach: 0.34, pivotH: 0.30 },
+      shooter: { type: 'turret', x: 0.12, h: 0.47 },
+      hopper: { capacity: 40 },
+    },
   };
   const clone = o => JSON.parse(JSON.stringify(o));
+  // 深層合併:存檔裡沒有的欄位(舊版存的、新加的功能)用預設值補上
   function merge(base, over) {
     const out = clone(base);
     if (!over || typeof over !== 'object') return out;
     for (const k of Object.keys(over)) {
-      if (over[k] && typeof over[k] === 'object' && !Array.isArray(over[k]) && out[k] && typeof out[k] === 'object') out[k] = Object.assign(out[k], over[k]);
+      if (over[k] && typeof over[k] === 'object' && !Array.isArray(over[k]) && out[k] && typeof out[k] === 'object') out[k] = merge(out[k], over[k]);
       else if (over[k] !== undefined) out[k] = over[k];
     }
     return out;
@@ -68,6 +75,8 @@ const BODY = (() => {
   async function apply(c, { reloadBlobs = false } = {}) {
     cur = c;
     if (typeof PHYS !== 'undefined' && PHYS.configure) PHYS.configure(c);
+    // 籃子容量(screen.js 的 MAX_HELD;車上已經超過的球先留著)
+    if (typeof MAX_HELD !== 'undefined') MAX_HELD = Math.max(1, Math.min(80, Math.round(+c.parts.hopper.capacity || 40)));
     const V = view();
     if (!V) return;
     // 模型 / 隊徽只在換專案或重新匯入時才從 IndexedDB 讀
@@ -194,6 +203,27 @@ const BODY = (() => {
           </div>
         </div>
 
+        <div class="rc-sec"><h3>🧩 機構組裝</h3>
+          <div class="rc-info" style="margin-top:0">藍圖可以直接拖:<b>俯視圖</b>拖橘色圓點 = Shooter 前後位置、拖綠色框的邊 = Intake 寬度 / 伸出長度;<b>側視圖</b>拖橘色圓點 = Shooter 高度。
+            這些數字會真的影響模擬:吸得到多寬的球、球從哪裡射出去、籃子裝幾顆。</div>
+          <canvas id="rcBlue" style="width:100%;height:230px;display:block;margin-top:8px;border-radius:10px;background:#0b1016;touch-action:none;cursor:grab"></canvas>
+          <div class="rc-g" style="margin-top:8px">
+            <label class="rc-f"><span>Intake</span><span class="rc-r"><select data-p="parts.intake.type">
+              <option value="pivot"${work.parts.intake.type !== 'none' ? ' selected' : ''}>放下式(手臂往前放)</option>
+              <option value="none"${work.parts.intake.type === 'none' ? ' selected' : ''}>沒有 Intake</option></select></span></label>
+            ${num('parts.intake.width', 'Intake 寬度', 'm', 'step="0.01" min="0.2" max="1.4"')}
+            ${num('parts.intake.reach', 'Intake 伸出保險桿外', 'm', 'step="0.01" min="0.08" max="0.8"')}
+            ${num('parts.intake.pivotH', 'Intake 樞紐高度', 'm', 'step="0.01" min="0.1" max="0.8"')}
+            <label class="rc-f"><span>Shooter</span><span class="rc-r"><select data-p="parts.shooter.type">
+              <option value="turret"${work.parts.shooter.type === 'turret' ? ' selected' : ''}>砲塔(可以左右轉)</option>
+              <option value="fixed"${work.parts.shooter.type === 'fixed' ? ' selected' : ''}>固定朝前(要轉車身瞄準)</option>
+              <option value="none"${work.parts.shooter.type === 'none' ? ' selected' : ''}>沒有 Shooter</option></select></span></label>
+            ${num('parts.shooter.x', 'Shooter 前後位置(+ 往前)', 'm', 'step="0.01" min="-0.7" max="0.7"')}
+            ${num('parts.shooter.h', 'Shooter 高度', 'm', 'step="0.01" min="0.2" max="1.6"')}
+            ${num('parts.hopper.capacity', '籃子容量', '顆', 'step="1" min="1" max="80"')}
+          </div>
+        </div>
+
         <div class="rc-sec"><h3>⚡ 底盤動力(坦克式)</h3>
           <div class="rc-g">
             <label class="rc-f"><span>馬達</span><span class="rc-r"><select data-p="drive.motor">
@@ -249,7 +279,105 @@ const BODY = (() => {
           ${sp.vFree > 6 ? '<br><span class="rc-warn">⚠️ 極速超過 6 m/s:加速會很慢、很難控制,可以加大減速比</span>' : ''}`;
       }
     };
-    const live = () => { apply(work); refresh(); };
+    // ---------- 🧩 藍圖(俯視 + 側視),可以拖 ----------
+    const bp = $('#rcBlue');
+    let bpGeo = null, drag = null;
+    const drawBlue = () => {
+      const dpr = window.devicePixelRatio || 1, Wc = bp.clientWidth, Hc = bp.clientHeight;
+      if (!Wc) return;
+      if (bp.width !== Math.round(Wc * dpr)) { bp.width = Math.round(Wc * dpr); bp.height = Math.round(Hc * dpr); }
+      const g = bp.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, Wc, Hc);
+      const L = +work.length || 0.86, Wd = +work.width || 0.86, it = work.parts.intake, sh = work.parts.shooter;
+      const reach = it.type === 'none' ? 0 : +it.reach, iw = Math.min(+it.width, Wd - 0.04);
+      // 左半邊:俯視(車頭朝右)
+      const topW = Wc * 0.55, sc = Math.min((topW - 40) / (L + reach + 0.2), (Hc - 40) / (Wd + 0.2));
+      const cx = 20 + (topW - 40) / 2 - reach * sc / 2, cy = Hc / 2;
+      const X = x => cx + x * sc, Y = y => cy + y * sc;
+      g.font = '600 11px system-ui,sans-serif'; g.textBaseline = 'middle';
+      g.fillStyle = '#8b949e'; g.fillText('俯視(車頭 →)', 10, 12);
+      const bumper = work.bumperColor === 'blue' ? '#1f6feb' : '#c8102e';
+      g.fillStyle = bumper; g.fillRect(X(-L / 2), Y(-Wd / 2), L * sc, Wd * sc);
+      g.fillStyle = '#2b3138'; g.fillRect(X(-L / 2 + 0.085), Y(-Wd / 2 + 0.085), (L - 0.17) * sc, (Wd - 0.17) * sc);
+      // 籃子(示意:車身後半)
+      g.strokeStyle = '#1fb5a8'; g.lineWidth = 1.5; g.setLineDash([4, 3]);
+      g.strokeRect(X(-L / 2 + 0.12), Y(-Wd / 2 + 0.14), (L * 0.45) * sc, (Wd - 0.28) * sc); g.setLineDash([]);
+      g.fillStyle = '#1fb5a8'; g.fillText(`籃子 ${work.parts.hopper.capacity} 顆`, X(-L / 2 + 0.14), Y(-Wd / 2 + 0.22));
+      // Intake(放下的樣子)
+      let intakeBox = null;
+      if (it.type !== 'none') {
+        intakeBox = { x0: X(L / 2), x1: X(L / 2 + reach), y0: Y(-iw / 2), y1: Y(iw / 2) };
+        g.fillStyle = 'rgba(63,185,80,.25)'; g.strokeStyle = '#3fb950'; g.lineWidth = 2;
+        g.fillRect(intakeBox.x0, intakeBox.y0, intakeBox.x1 - intakeBox.x0, intakeBox.y1 - intakeBox.y0);
+        g.strokeRect(intakeBox.x0, intakeBox.y0, intakeBox.x1 - intakeBox.x0, intakeBox.y1 - intakeBox.y0);
+        g.fillStyle = '#3fb950'; g.fillText(`Intake ${iw.toFixed(2)} m`, intakeBox.x0 + 3, intakeBox.y0 - 8);
+      }
+      // Shooter
+      let shDot = null;
+      if (sh.type !== 'none') {
+        shDot = { x: X(+sh.x), y: cy };
+        g.fillStyle = '#f0883e'; g.beginPath(); g.arc(shDot.x, shDot.y, 8, 0, 7); g.fill();
+        g.strokeStyle = '#f0883e'; g.lineWidth = 2; g.beginPath(); g.moveTo(shDot.x, shDot.y); g.lineTo(shDot.x + 26, shDot.y); g.stroke();
+        if (sh.type === 'turret') { g.beginPath(); g.arc(shDot.x, shDot.y, 16, -0.9, 0.9); g.stroke(); }
+      }
+      // 右半邊:側視
+      const sx0 = topW + 10, sw = Wc - sx0 - 10, ground = Hc - 26;
+      const ss = Math.min(sw / (L + reach + 0.9), (ground - 24) / 1.9);
+      const SX = x => sx0 + 20 + (x + L / 2) * ss, SY = h => ground - h * ss;
+      g.fillStyle = '#8b949e'; g.fillText('側視', sx0, 12);
+      g.strokeStyle = '#30363d'; g.lineWidth = 1; g.beginPath(); g.moveTo(sx0, ground); g.lineTo(Wc - 6, ground); g.stroke();
+      g.fillStyle = bumper; g.fillRect(SX(-L / 2), SY(0.165), L * ss, 0.13 * ss);
+      g.fillStyle = '#39424d'; g.fillRect(SX(-L / 2 + 0.05), SY(0.3), (L - 0.1) * ss, 0.135 * ss);
+      if (it.type !== 'none') {                                   // 放下的 Intake 手臂
+        g.strokeStyle = '#3fb950'; g.lineWidth = 4;
+        g.beginPath(); g.moveTo(SX(L / 2 - 0.05), SY(+it.pivotH)); g.lineTo(SX(L / 2 + reach), SY(0.06)); g.stroke();
+      }
+      let shSide = null;
+      if (sh.type !== 'none') {
+        const mz = +sh.h + 0.08, la = ((ROBOT.config.shooter && ROBOT.config.shooter.launchDeg) ?? 60) * Math.PI / 180;
+        g.strokeStyle = '#6e7781'; g.lineWidth = 3; g.beginPath(); g.moveTo(SX(+sh.x), SY(0.3)); g.lineTo(SX(+sh.x), SY(+sh.h)); g.stroke();
+        shSide = { x: SX(+sh.x), y: SY(mz) };
+        g.setLineDash([5, 4]); g.strokeStyle = '#f0883e'; g.lineWidth = 1.5;   // 出球方向
+        g.beginPath(); g.moveTo(shSide.x, shSide.y); g.lineTo(shSide.x + Math.cos(la) * 60, shSide.y - Math.sin(la) * 60); g.stroke(); g.setLineDash([]);
+        g.fillStyle = '#f0883e'; g.beginPath(); g.arc(shSide.x, shSide.y, 7, 0, 7); g.fill();
+        g.fillText(`出球點 ${mz.toFixed(2)} m`, shSide.x + 10, shSide.y + 14);
+      }
+      g.fillStyle = '#8b949e'; g.fillText(`${L.toFixed(2)} × ${Wd.toFixed(2)} m`, 10, Hc - 10);
+      bpGeo = { sc, ss, intakeBox, shDot, shSide, L, Wd, cy };
+    };
+    const setField = (path, v) => {
+      const ks = path.split('.'), last = ks.pop();
+      ks.reduce((a, k) => a[k], work)[last] = +v.toFixed(3);
+      const el = dlg.querySelector(`[data-p="${path}"]`); if (el) el.value = +v.toFixed(3);
+    };
+    bp.addEventListener('pointerdown', e => {
+      if (!bpGeo) return;
+      const r = bp.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, G2 = bpGeo;
+      const near = (a, b, d = 12) => a && Math.hypot(x - a.x, y - b) < d;
+      if (G2.shDot && near(G2.shDot, G2.shDot.y)) drag = { k: 'shx', x0: x, v0: +work.parts.shooter.x };
+      else if (G2.shSide && near(G2.shSide, G2.shSide.y)) drag = { k: 'shh', y0: y, v0: +work.parts.shooter.h };
+      else if (G2.intakeBox) {
+        const b = G2.intakeBox;
+        if (Math.abs(x - b.x1) < 8 && y > b.y0 && y < b.y1) drag = { k: 'reach', x0: x, v0: +work.parts.intake.reach };
+        else if ((Math.abs(y - b.y0) < 8 || Math.abs(y - b.y1) < 8) && x > b.x0 - 4 && x < b.x1 + 4) drag = { k: 'width', y0: y, v0: +work.parts.intake.width, sgn: y < G2.cy ? -1 : 1 };
+      }
+      if (drag) { bp.setPointerCapture(e.pointerId); bp.style.cursor = 'grabbing'; }
+    });
+    bp.addEventListener('pointermove', e => {
+      if (!drag || !bpGeo) return;
+      const r = bp.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, G2 = bpGeo;
+      const clampV = (v, a, b) => Math.max(a, Math.min(b, v));
+      if (drag.k === 'shx') setField('parts.shooter.x', clampV(drag.v0 + (x - drag.x0) / G2.sc, -G2.L / 2 + 0.1, G2.L / 2 - 0.05));
+      if (drag.k === 'shh') setField('parts.shooter.h', clampV(drag.v0 - (y - drag.y0) / G2.ss, 0.2, 1.6));
+      if (drag.k === 'reach') setField('parts.intake.reach', clampV(drag.v0 + (x - drag.x0) / G2.sc, 0.08, 0.8));
+      if (drag.k === 'width') setField('parts.intake.width', clampV(drag.v0 + drag.sgn * 2 * (y - drag.y0) / G2.sc, 0.2, G2.Wd - 0.04));
+      drawBlue();
+    });
+    const endDrag = () => { if (drag) { drag = null; bp.style.cursor = 'grab'; live(); } };
+    bp.addEventListener('pointerup', endDrag);
+    bp.addEventListener('pointercancel', endDrag);
+
+    const live = () => { apply(work); refresh(); drawBlue(); };
 
     dlg.querySelectorAll('[data-p]').forEach(el => el.addEventListener('change', () => {
       const path = el.dataset.p.split('.'), last = path.pop();
@@ -334,6 +462,7 @@ const BODY = (() => {
     dlg.returnValue = '';
     refresh();
     if (!dlg.open) dlg.showModal();
+    requestAnimationFrame(drawBlue);
   }
 
   // 工具列按鈕(放在 ⚙️ 機構設定 旁邊)

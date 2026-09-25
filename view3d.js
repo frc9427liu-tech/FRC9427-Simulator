@@ -1678,6 +1678,17 @@ function applyLook() {
   // 模擬用的機構(砲台 / 手臂 / 球堆 / 我們畫的輪子):自訂模型預設藏起來,可以在設定裡打開
   const mech = mc.showMechs ?? !custom;
   for (const o of [R.turret, R.intake, R.held]) if (o) o.visible = mech;
+  // 🧩 機構組裝:Intake 寬度 / 伸出長度 / 樞紐高度、Shooter 種類 / 前後位置 / 高度(物理用同一組數字)
+  const parts = c.parts || {}, it = parts.intake || {}, sh = parts.shooter || {};
+  if (R.intake) {
+    if (it.type === 'none') R.intake.visible = false;
+    R.intake.position.set(L / 2 - 0.05, it.pivotH ?? 0.30, 0);
+    R.intake.scale.set((it.reach ?? 0.34) / 0.34, 1, Math.min(it.width ?? 0.66, W - 0.04) / 0.62);
+  }
+  if (R.turret) {
+    if (sh.type === 'none') R.turret.visible = false;
+    R.turret.position.set(sh.x ?? 0.12, sh.h ?? 0.47, 0);
+  }
   for (const w of R.wheels || []) w.g.visible = !custom || mech;
   // 接觸陰影跟著車身大小
   if (R.blob) R.blob.scale.set(L / 0.86, 1, W / 0.86);

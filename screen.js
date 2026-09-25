@@ -29,7 +29,7 @@ let held = 3, score = 0, missed = 0;
 let wheelL = 0, wheelR = 0, spin = 0, flySpin = 0, lastT = performance.now(), lastShot = 0, lastMark = 0;
 let follow = true;
 const cam = { x: pose.x, y: pose.y, scale: 0 };
-const MAX_HELD = 40;      // 車上最多幾顆(2026 的機器人都是大球籃)
+let MAX_HELD = 40;        // 車上最多幾顆(2026 的機器人都是大球籃;🧩 機構組裝可以改)
 const FIRE_MS = 100;      // 連發間隔(毫秒)
 const HUB_TOP = 1.83;     // HUB 入口高度(公尺,官方模型漏斗頂 = 72 英寸)
 let lastIntake = 0, lastIntakePop = 0, lastEmptyPop = 0, lastPublish = 0;
@@ -133,7 +133,7 @@ function frameBody(t) {
   // 哪個數值是哪個機構,由 robotmap.js 決定(⚙️ 機構設定;LEO 有內建預設)
   const L = ROBOT.driveL(), R = ROBOT.driveR();
   const arm = ROBOT.armFrac();
-  const turret = ROBOT.turretRad();
+  const turret = PHYS.turretFixed ? 0 : ROBOT.turretRad();   // 固定式 Shooter:不管程式怎麼轉都朝正前方
   const fly = ROBOT.fly(), orbit = ROBOT.orbit(), idx = ROBOT.idx();
   const rollerDir = ROBOT.intakeDir(state[1].buttons);
 
@@ -171,8 +171,8 @@ function frameBody(t) {
   const aim = pose.th + turret;
   // 落點預測:飛輪有在轉就算出球會掉在哪,畫一個圈 + 告訴駕駛要往前還往後
   // (以前看不出射程,從起點射 8 顆全沒進也不知道為什麼)
-  const aimPt = Math.abs(fly) > 5 ? predictLanding(aim, fly) : null;
-  if (Math.abs(fly) > 5 && ROBOT.feeding() && t - lastShot > FIRE_MS) {
+  const aimPt = PHYS.canShoot && Math.abs(fly) > 5 ? predictLanding(aim, fly) : null;
+  if (PHYS.canShoot && Math.abs(fly) > 5 && ROBOT.feeding() && t - lastShot > FIRE_MS) {
     lastShot = t;
     if (held > 0) {
       held--;

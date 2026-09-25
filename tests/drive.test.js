@@ -46,4 +46,15 @@ Object.assign(ctx.pose, { x: 0.1, y: 0.6, th: 0 }); Object.assign(P.state, { vL:
 P.drive(0, 0, 1 / 60);
 assert.ok(Math.abs(ctx.pose.x - 0.5) < 1e-9, `車中心應該被推到 0.5,實際 ${ctx.pose.x}`);
 
+// 🧩 機構組裝:Intake 寬度、Shooter 種類 / 位置會影響物理
+P.configure({ parts: { intake: { type: 'pivot', width: 0.5, reach: 0.4 }, shooter: { type: 'fixed', x: -0.2, h: 0.8 } } });
+assert.ok(Math.abs(P.dims.intake - 0.25) < 1e-9 && Math.abs(P.dims.reach - 0.4) < 1e-9, 'Intake 寬度 / 伸出長度');
+assert.ok(P.turretFixed && P.canShoot && Math.abs(P.dims.pivot + 0.2) < 1e-9 && Math.abs(P.dims.muzzleZ - 0.88) < 1e-9, 'Shooter 固定式、位置、高度');
+Object.assign(ctx.pose, { x: 5, y: 2, th: 0 });
+const shot = P.launch(0, 50, false);
+assert.ok(Math.abs(shot.z - 0.88) < 1e-9 && shot.x < 5 + 0.2, `出球點應該在車後方偏高:x = ${shot.x}, z = ${shot.z}`);
+P.configure({ parts: { intake: { type: 'none' }, shooter: { type: 'none' } } });
+assert.ok(!P.hasIntake && !P.canShoot, '沒有 Intake / Shooter');
+P.configure(null);
+
 console.log('✅ 底盤物理測試全部通過');

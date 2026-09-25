@@ -23,6 +23,8 @@ const PHYS = (() => {
   const BUMP_SLOW = 0.7;           // 開上 BUMP 速度打折
   const SCRUB_K = 0.35;            // 轉彎側滑阻力 ≈ 0.35 × 車重(6 輪中間輪較低的 drop-center 大約這樣)
   let INTAKE_HALF = 0.33;          // 車頭吸球口的半寬
+  let INTAKE_REACH = 0.34;         // Intake 放下時伸出保險桿外多遠
+  let INTAKE_ON = true, SHOOTER = 'turret';   // 有沒有 Intake、Shooter 的種類(turret 可轉 / fixed 固定朝前 / none 沒有)
 
   // ---------- 底盤動力(2026-09-24 v6:真實馬達 + 電池) ----------
   // 以前:目標速度 = 出力 × 固定極速,用固定時間常數追上去(示意)。
@@ -41,7 +43,14 @@ const PHYS = (() => {
     const len = +body.length || 0.86, wid = +body.width || 0.86;
     HX = len / 2; HY = wid / 2;
     TRACK = Math.max(0.3, wid - 0.24);
-    INTAKE_HALF = Math.max(0.12, Math.min(0.33, HY - 0.1));
+    // 🧩 機構組裝(robotcustom.js 的 parts)
+    const parts = body.parts || {}, it = parts.intake || {}, sh = parts.shooter || {};
+    INTAKE_ON = it.type !== 'none';
+    INTAKE_HALF = Math.max(0.1, Math.min((+it.width || 0.66) / 2, HY - 0.02));
+    INTAKE_REACH = Math.max(0.08, Math.min(+it.reach || 0.34, 0.8));
+    SHOOTER = ['turret', 'fixed', 'none'].includes(sh.type) ? sh.type : 'turret';
+    PIVOT = Math.max(-HX, Math.min(HX, sh.x ?? 0.12));
+    MUZZLE_Z = Math.max(0.2, Math.min(1.8, (sh.h ?? 0.47) + 0.08));
     if (!ML) { DRV = null; return; }
     const d = Object.assign({}, DRIVE_DEFAULT, body.drive || {});
     const b = Object.assign({}, BATT_DEFAULT, body.battery || {});
@@ -101,7 +110,8 @@ const PHYS = (() => {
   const DRAG_K = 0.5 * 1.2 * 0.5 * Math.PI * BALL_R * BALL_R / BALL_M;   // ½ρCdA/m
   const ROLL_DECEL = 1.6;          // 泡棉球在地毯上滾的減速(m/s²)
   // 出球仰角、飛輪→出球速度的比例都從 ⚙️ 機構設定來(robotmap.js;LEO 預設 60°、4 吋輪、效率 0.29)
-  const PIVOT = 0.12, MUZZLE = 0.3, MUZZLE_Z = 0.55;
+  const MUZZLE = 0.3;
+  let PIVOT = 0.12, MUZZLE_Z = 0.55;   // 砲塔中心離車中心往前幾公尺、出球口高度(🧩 機構組裝可以改)
   const HUB_DELAY = 0.7;           // 球從 HUB 入口到後面出口的時間(示意)
 
   // ---------- 底盤 ----------
@@ -216,7 +226,7 @@ const PHYS = (() => {
     ENG.rCol = w.createCollider(shape.setMass(mass).setFriction(0)
       .setFrictionCombineRule(R.CoefficientCombineRule.Min).setRestitution(0.15), ENG.robot);
     // 手臂放下時,前面多一截 Intake(會把球擋在車頭、推著走)
-    ENG.iCol = w.createCollider(R.ColliderDesc.cuboid(0.17, 0.05, INTAKE_HALF).setTranslation(HX + 0.17, -RH + 0.06, 0)
+    ENG.iCol = w.createCollider(R.ColliderDesc.cuboid(INTAKE_REACH / 2, 0.05, INTAKE_HALF).setTranslation(HX + INTAKE_REACH / 2, -RH + 0.06, 0)
       .setMass(0.01).setFriction(0).setFrictionCombineRule(R.CoefficientCombineRule.Min), ENG.robot);
     ENG.iCol.setEnabled(false);
   }
@@ -279,10 +289,10 @@ const PHYS = (() => {
   const BALL_REST = 0.3;
   function engineBalls(dt, t, arm, rollerDir, onCapture) {
     const R = ENG.R, w = ENG.world;
-    ENG.iCol.setEnabled(arm > 0.3);
+    ENG.iCol.setEnabled(INTAKE_ON && arm > 0.3);
     const c = Math.cos(pose.th), s = Math.sin(pose.th);
     const ux = c, uy = -s, vx = s, vy = c;
-    const front = HX + (arm > 0.3 ? 0.06 + 0.28 * arm : 0);
+    const front = HX + (INTAKE_ON && arm > 0.3 ? 0.06 + (INTAKE_REACH - 0.06) * arm : 0);
     const seen = new Set();
     for (let i = fieldBalls.length - 1; i >= 0; i--) {
       const b = fieldBalls[i];
@@ -302,7 +312,7 @@ const PHYS = (() => {
       const dx = b.x - pose.x, dy = b.y - pose.y;
       const lx = dx * ux + dy * uy, ly = dx * vx + dy * vy;
       if (lx > HX - 0.05 && lx < front + BALL_R + 0.04 && Math.abs(ly) < INTAKE_HALF && b.h < 0.3
-          && arm > 0.6 && rollerDir > 0 && held < MAX_HELD && t - lastCapture > 90) {
+          && INTAKE_ON && arm > 0.6 && rollerDir > 0 && held < MAX_HELD && t - lastCapture > 90) {
         fieldBalls.splice(i, 1); lastCapture = t; onCapture(b);
         seen.delete(rb); ENG.balls.delete(rb); w.removeRigidBody(rb); b._rb = null;
       }
@@ -379,7 +389,7 @@ const PHYS = (() => {
     if (ENG.ready) return engineBalls(dt, t, arm, rollerDir, onCapture);
     const c = Math.cos(pose.th), s = Math.sin(pose.th);
     const ux = c, uy = -s, vx = s, vy = c;                 // 車頭方向 u、車左右 v(畫面座標)
-    const front = HX + (arm > 0.3 ? 0.06 + 0.28 * arm : 0);   // 手臂放下時前面多伸出一截
+    const front = HX + (INTAKE_ON && arm > 0.3 ? 0.06 + (INTAKE_REACH - 0.06) * arm : 0);   // 手臂放下時前面多伸出一截
     const r = BALL_R;
     grid.clear();
     for (let i = fieldBalls.length - 1; i >= 0; i--) {
@@ -403,7 +413,7 @@ const PHYS = (() => {
       const lx = dx * ux + dy * uy, ly = dx * vx + dy * vy;
       const inFront = lx > HX - 0.05 && lx < front + r && Math.abs(ly) < INTAKE_HALF;
       // 吸球速度上限:約每秒 11 顆(示意;原本 40ms 一顆 → 2.5 秒吸 38 顆,太誇張)
-      if (inFront && arm > 0.6 && rollerDir > 0 && held < MAX_HELD && t - lastCapture > 90) {
+      if (INTAKE_ON && inFront && arm > 0.6 && rollerDir > 0 && held < MAX_HELD && t - lastCapture > 90) {
         fieldBalls.splice(i, 1); lastCapture = t; onCapture(b);
         continue;
       }
@@ -583,6 +593,7 @@ const PHYS = (() => {
   configure(null);
   const engineReady = engineInit();
   return { engineReady, get engine() { return ENG.ready ? ENG : null; }, drive, balls, flights, launch, predict, rangeAt, state: S, onBump, OBST, BUMPS, configure, driveSpecs,
-           get dims() { return { hx: HX, hy: HY, track: TRACK, intake: INTAKE_HALF }; },
+           get dims() { return { hx: HX, hy: HY, track: TRACK, intake: INTAKE_HALF, reach: INTAKE_REACH, pivot: PIVOT, muzzleZ: MUZZLE_Z }; },
+           get canShoot() { return SHOOTER !== 'none'; }, get turretFixed() { return SHOOTER === 'fixed'; }, get hasIntake() { return INTAKE_ON; },
            get battery() { return DRV && DRV.battery; } };
 })();

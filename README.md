@@ -64,6 +64,7 @@
 | `mechlab.html` `mechlab-core.js` `mechlab-ui.js` | 🔧 機構實驗室(`-core` 是物理和控制,node 也能跑) |
 | `robotcustom.js` | 🤖 自訂機器人(模型、保險桿、尺寸、底盤馬達、電池) |
 | `rapier.js` | 3D 物理引擎 [Rapier](https://rapier.rs)(Apache-2.0,WASM 打包成一個檔,離線可用) |
+| `pathtracer.js` | 🌟 光線追蹤:[three-gpu-pathtracer](https://github.com/gkjohnson/three-gpu-pathtracer) + three-mesh-bvh(MIT)打包,讀本機的 three.js |
 | `tests/` | 自動測試:`node tests/mechlab.test.js`、`node tests/drive.test.js`、`node tests/engine.test.js` |
 | `robotmap.js` | ⚙️ 機構設定(讓任何程式都能對應) |
 | `demo.js` `keyboard.js` | 展示模式、鍵盤操作 |

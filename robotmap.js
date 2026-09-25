@@ -321,7 +321,7 @@ const ROBOT = (() => {
   const qSel = document.createElement('select');
   qSel.id = 'qualitySel'; qSel.title = '3D 畫質(卡的話調低)';
   qSel.style.cssText = 'background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:13px';
-  qSel.innerHTML = '<option value="high">🎨 畫質:高</option><option value="mid">🎨 畫質:中</option><option value="low">🎨 畫質:低</option>';
+  qSel.innerHTML = '<option value="rt">🌟 畫質:光線追蹤(停下來就會變逼真,要好顯卡)</option><option value="high">🎨 畫質:高</option><option value="mid">🎨 畫質:中</option><option value="low">🎨 畫質:低</option>';
   try { qSel.value = localStorage.getItem('sim-quality') || 'high'; } catch {}
   qSel.onchange = () => { if (window.View3D && View3D.setQuality) View3D.setQuality(qSel.value); };
   bar.insertBefore(qSel, helpBtn);

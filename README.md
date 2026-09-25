@@ -63,7 +63,8 @@
 | `physics.js` | 物理(底盤、球、射球、場地碰撞) |
 | `mechlab.html` `mechlab-core.js` `mechlab-ui.js` | 🔧 機構實驗室(`-core` 是物理和控制,node 也能跑) |
 | `robotcustom.js` | 🤖 自訂機器人(模型、保險桿、尺寸、底盤馬達、電池) |
-| `tests/` | 自動測試:`node tests/mechlab.test.js`、`node tests/drive.test.js` |
+| `rapier.js` | 3D 物理引擎 [Rapier](https://rapier.rs)(Apache-2.0,WASM 打包成一個檔,離線可用) |
+| `tests/` | 自動測試:`node tests/mechlab.test.js`、`node tests/drive.test.js`、`node tests/engine.test.js` |
 | `robotmap.js` | ⚙️ 機構設定(讓任何程式都能對應) |
 | `demo.js` `keyboard.js` | 展示模式、鍵盤操作 |
 | `server.js` `sim-ws.gradle` | 小伺服器、讓 WPILib 模擬器接受網頁搖桿 |

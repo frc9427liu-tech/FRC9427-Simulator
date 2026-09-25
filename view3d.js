@@ -1146,7 +1146,7 @@ function updateBalls(s) {
   const n = Math.min(fb.length, FIELD_CAP);
   for (let i = 0; i < n; i++) {
     const b = fb[i];
-    dummy.position.set(b.x, BALL_R, b.y);
+    dummy.position.set(b.x, b.h != null ? Math.max(BALL_R, b.h) : BALL_R, b.y);   // 物理引擎算出來的高度(堆疊、BUMP 上)
     dummy.rotation.set(b.x * 3.1, 0, b.y * 2.7);    // 依位置轉一點,看起來像滾過
     dummy.scale.setScalar(BALL_R);
     dummy.updateMatrix();

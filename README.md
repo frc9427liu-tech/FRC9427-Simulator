@@ -47,6 +47,11 @@
 
 ## 🛠️ 發新版(給維護的人)
 
+**自動(建議)**:把 `app/package.json` 的 `version` 加一、合併進 main,然後推一個一樣版本的 tag:
+`git tag v2.1.1` → `git push origin v2.1.1`。GitHub Actions(`.github/workflows/release.yml`)會在 Windows 上跑測試、打包安裝檔、發布到 Releases,大家的軟體就會自動更新。
+
+**手動**:
+
 1. 改好程式,把 `app/package.json` 的 `version` 加一(例如 2.0.0 → 2.0.1)
 2. `cd app` → `npm install`(第一次)→ `npm run dist`
 3. 到 GitHub 開新的 Release(tag 跟版本一樣,例如 `v2.0.1`),把 `app/dist/` 裡這 3 個檔案傳上去:

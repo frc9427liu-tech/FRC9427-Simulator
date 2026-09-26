@@ -11,7 +11,7 @@
   const DRV = 0, OP = 1;
   const KB = 'kb';                        // 在 holds 裡代表「鍵盤按著」,跟滑鼠按的分開算
   const KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-                'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyG'];
+                'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyG', 'KeyZ', 'KeyC'];
 
   function btn(pi, name, on) {
     const i = BTN[name] - 1, set = holds[pi][i];
@@ -26,7 +26,14 @@
       const f = (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0);
       const t = (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0);   // 往右轉 = 左輪快
       const slow = k('ShiftLeft') || k('ShiftRight') ? 0.5 : 1;
-      if (f || t || usedDrive) {
+      if (!(window.simPrefs && simPrefs.driveMode === 'tank')) {
+        // swerve(預設):跟真機一樣 —— 場地座標平移(W/S 前後、A/D 左右)+ Z/C 旋轉;搖桿往上推是負的
+        const rot = (k('KeyC') ? 1 : 0) - (k('KeyZ') ? 1 : 0);   // 右搖桿往右 = 順時針
+        const a = state[DRV].axes;
+        a[AX.LY] = -f * slow; a[AX.LX] = t * slow; a[AX.RX] = rot * slow;
+        a[AX.RY] = 0;
+        usedDrive = false;
+      } else if (f || t || usedDrive) {
         const clamp = v => Math.max(-1, Math.min(1, v));
         const turn = f ? t * 0.6 : t * 0.75;                  // 原地轉不要太猛
         state[DRV].axes[AX.LY] = -clamp((f + turn) * slow);
@@ -77,8 +84,9 @@
   tip.innerHTML = `<summary>⌨️ 鍵盤操作(可以同時按好幾個鍵)</summary>
     <div class="kbgrid">
       <div><b>駕駛手</b></div><div></div>
-      <div><kbd>W</kbd><kbd>S</kbd></div><div>前進 / 後退</div>
-      <div><kbd>A</kbd><kbd>D</kbd></div><div>左轉 / 右轉</div>
+      <div><kbd>W</kbd><kbd>S</kbd></div><div>往場地遠端 / 近端(場地座標,跟真機一樣)</div>
+      <div><kbd>A</kbd><kbd>D</kbd></div><div>往上 / 往下平移</div>
+      <div><kbd>Z</kbd><kbd>C</kbd></div><div>車頭逆時針 / 順時針轉</div>
       <div><kbd>Shift</kbd></div><div>按住 = 慢速</div>
       <div><b>操作手</b></div><div></div>
       <div><kbd>↑</kbd><kbd>↓</kbd></div><div>手臂收起 / 放下</div>

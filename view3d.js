@@ -1,4 +1,4 @@
-// 3D 場地視角(three.js r169,離線可用)
+﻿// 3D 場地視角(three.js r169,離線可用)
 // 介面:window.View3D = { mount, render, setCamera, project }
 import * as THREE from './three.module.min.js';
 import { GLTFLoader } from './GLTFLoader.js';
@@ -495,7 +495,7 @@ function makeHub(c) {
   for (const [sx, sz, w, d] of [[0, hw + 0.012, hw * 2 + 0.04, 0.02], [0, -hw - 0.012, hw * 2 + 0.04, 0.02], [hw + 0.012, 0, 0.02, hw * 2], [-hw - 0.012, 0, 0.02, hw * 2]])
     mesh(new THREE.BoxGeometry(w, 0.04, d), rimMat, g, sx, low + 0.02, sz, false);
   // 裡面的球(從窗戶看得到)
-  const pile = new THREE.InstancedMesh(pileGeo || (pileGeo = lumpySphere(12, 8)), ballMat, 60);
+  const pile = new THREE.InstancedMesh(pileGeo || (pileGeo = lumpySphere(16, 12)), ballMat, 60);
   const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(BALL_R, BALL_R, BALL_R), e = new THREE.Euler();
   let n = 0;
   for (let ly = 0; ly < 3; ly++) for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
@@ -824,9 +824,18 @@ function buildRobot() {
 
 // ---- 球 ----
 function makeBalls() {
-  ballGeo = lumpySphere(24, 16);
-  // 霧面泡棉黃
-  ballMat = new THREE.MeshStandardMaterial({ color: 0xf3c615, emissive: 0x2e2200, roughness: 0.9, metalness: 0 });
+  ballGeo = lumpySphere(40, 28);
+  // 泡棉球:亮黃色 + 細小氣孔的凹凸貼圖(不是一整片死黃),遠看也有立體感
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#808080'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2600; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256, r = 1 + Math.random() * 2.4, v = 60 + Math.random() * 90;
+    g.fillStyle = `rgba(${v},${v},${v},0.55)`; g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill();
+  }
+  const bump = new THREE.CanvasTexture(c);
+  bump.wrapS = bump.wrapT = THREE.RepeatWrapping; bump.repeat.set(2, 1);
+  ballMat = new THREE.MeshStandardMaterial({ color: 0xffcf1a, emissive: 0x3a2a00, roughness: 0.72, metalness: 0, bumpMap: bump, bumpScale: 1.4 });
 }
 // 表面有一點凹凸的球(泡棉球不是完美圓)
 function lumpySphere(ws, hs) {
@@ -947,7 +956,7 @@ function build() {
   hubs[0].g.position.set(4.63, 0, FH / 2);
   hubs[1].g.position.set(FW - 4.63, 0, FH / 2);
   // 場上的球:InstancedMesh(數百顆也順),陰影改用地上的柔和圓斑
-  fieldInst = new THREE.InstancedMesh(lumpySphere(14, 10), ballMat, FIELD_CAP);
+  fieldInst = new THREE.InstancedMesh(lumpySphere(20, 14), ballMat, FIELD_CAP);
   fieldInst.receiveShadow = true;
   fieldInst.count = 0;
   fieldInst.frustumCulled = false;
@@ -1693,7 +1702,8 @@ window.View3D = {
     container = el;
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     // 在 RTX 上實測 pr=2 也是滿幀(144fps),所以預設畫質開高一點;跑不動時 adaptQuality 會自己降回 1.0
-    basePR = curPR = Math.min((window.devicePixelRatio || 1) * 1.6, 2);
+    const savedScale = (() => { try { return parseFloat(localStorage.getItem('sim-scale')) || 0; } catch { return 0; } })();
+    basePR = curPR = Math.min((window.devicePixelRatio || 1) * (savedScale || 1.6), 3);
     renderer.setPixelRatio(basePR);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1737,6 +1747,13 @@ window.View3D = {
     if (renderer) { if (q === 'high' && curPR < basePR) { curPR = basePR; renderer.setPixelRatio(curPR); resize(W, H); } setupComposer(); }
   },
   get quality() { return quality; },
+  // 解析度倍率(1 = 原生、2 = 超取樣,最銳利):給「⚙ 介面」用,存在 localStorage
+  setRenderScale(s) {
+    s = Math.max(0.75, Math.min(2.5, +s || 1.6));
+    try { localStorage.setItem('sim-scale', String(s)); } catch {}
+    if (renderer) { basePR = curPR = Math.min((window.devicePixelRatio || 1) * s, 3); renderer.setPixelRatio(curPR); resize(W, H); if (composer) { composer.setPixelRatio(curPR); composer.setSize(W, H); } }
+  },
+  get renderScale() { try { return parseFloat(localStorage.getItem('sim-scale')) || 1.6; } catch { return 1.6; } },
   setCamera(mode) {
     if (!CAM_MODES.includes(mode) || mode === camMode) return;
     camMode = mode;

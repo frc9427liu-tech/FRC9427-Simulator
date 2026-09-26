@@ -138,7 +138,14 @@ function frameBody(t) {
   const rollerDir = ROBOT.intakeDir(state[1].buttons);
 
   // --- 底盤:有質量、有加速度、會被牆/HUB/TOWER 擋住(physics.js) ---
-  const ds = PHYS.drive(L, R, dt);
+  // 預設 swerve:跟真機的 DrivetrainCmd 一樣(左搖桿平移、右搖桿旋轉);「⚙ 介面」可切回舊的坦克式(讀機器人的左右輪出力)
+  let ds;
+  if (window.simPrefs && simPrefs.driveMode === 'tank') ds = PHYS.drive(L, R, dt);
+  else {
+    const ax = state[0].axes, db = x => (Math.abs(x) < 0.05 ? 0 : x);
+    const on = enabled;
+    ds = PHYS.driveSwerve(on ? -db(ax[AX.LY]) : 0, on ? db(ax[AX.LX]) : 0, on ? -db(ax[AX.RX]) * 0.8 : 0, dt);
+  }
   const vL = ds.vL, vR = ds.vR, v = ds.v, w = ds.w;
   wheelL += vL * dt; wheelR += vR * dt;
   spin += dt * orbit * 0.15;

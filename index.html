@@ -251,8 +251,46 @@
     <input type="checkbox" id="latch"> 🔒 鎖定模式
   </label>
   <label class="toggle"><input type="checkbox" id="edit"> ✏️ 編輯按鈕</label>
+  <button class="toggle" id="prefsBtn" title="字體大小、畫質、操控方式">⚙ 介面</button>
   <button class="enable" id="enable" disabled>啟用</button>
 </div>
+<dialog id="prefsDlg" style="max-width:420px">
+  <h3 style="margin:0 0 6px">⚙ 介面設定</h3>
+  <label>字體 / 介面大小:<b id="pvScale"></b>
+    <input type="range" id="pScale" min="0.8" max="1.8" step="0.05" style="width:100%"></label>
+  <label>3D 解析度倍率(越高越銳利、越吃顯卡):<b id="pvRes"></b>
+    <input type="range" id="pRes" min="1" max="2.5" step="0.1" style="width:100%"></label>
+  <label>3D 畫質特效
+    <select id="pQual" style="width:100%"><option value="high">高(環境遮蔽 + 光暈)</option><option value="mid">中(只有光暈)</option><option value="low">低(最省)</option></select></label>
+  <label>底盤操控方式
+    <select id="pDrive" style="width:100%"><option value="swerve">Swerve 全向(跟真機一樣:左搖桿平移、右搖桿旋轉)</option><option value="tank">坦克式(讀機器人的左右輪出力,舊版)</option></select></label>
+  <div style="margin-top:12px;text-align:right"><button class="toggle" id="prefsClose" style="display:inline-block">完成</button></div>
+</dialog>
+<script>
+// 使用者偏好(存在這台電腦的 localStorage)。screen.js / keyboard.js 讀 window.simPrefs
+window.simPrefs = (() => {
+  let s = {}; try { s = JSON.parse(localStorage.getItem('sim-prefs') || '{}'); } catch {}
+  return Object.assign({ uiScale: 1, driveMode: 'swerve' }, s);
+})();
+function saveSimPrefs() { try { localStorage.setItem('sim-prefs', JSON.stringify(simPrefs)); } catch {} }
+function applyUiScale() { document.body.style.zoom = simPrefs.uiScale; }
+document.addEventListener('DOMContentLoaded', () => {
+  applyUiScale();
+  const $ = id => document.getElementById(id), dlg = $('prefsDlg');
+  const sync = () => {
+    $('pScale').value = simPrefs.uiScale; $('pvScale').textContent = Math.round(simPrefs.uiScale * 100) + '%';
+    const V = window.View3D;
+    $('pRes').value = V ? V.renderScale : 1.6; $('pvRes').textContent = '×' + (+$('pRes').value).toFixed(1);
+    $('pQual').value = V ? V.quality : 'high'; $('pDrive').value = simPrefs.driveMode;
+  };
+  $('prefsBtn').onclick = () => { sync(); dlg.showModal(); };
+  $('prefsClose').onclick = () => dlg.close();
+  $('pScale').oninput = e => { simPrefs.uiScale = +e.target.value; applyUiScale(); saveSimPrefs(); $('pvScale').textContent = Math.round(simPrefs.uiScale * 100) + '%'; };
+  $('pRes').oninput = e => { $('pvRes').textContent = '×' + (+e.target.value).toFixed(1); window.View3D && View3D.setRenderScale(+e.target.value); };
+  $('pQual').onchange = e => window.View3D && View3D.setQuality(e.target.value);
+  $('pDrive').onchange = e => { simPrefs.driveMode = e.target.value; saveSimPrefs(); };
+});
+</script>
 <div class="hint">
   滑鼠或手指拖搖桿、按按鈕。滑鼠一次只能按一個,要同時按兩個(例如 <b>RT + A</b> 發射)請打開 <b>🔒 鎖定模式</b>。
   緊急停止:按鍵盤 <b>空白鍵</b> 或 <b>Enter</b>。

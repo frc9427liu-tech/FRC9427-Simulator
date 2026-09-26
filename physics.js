@@ -33,9 +33,9 @@ const PHYS = (() => {
   //   控制器的定子 / 供電電流限制一樣有作用(限制越低,起步越溫和、越不容易 Brownout)
   const ML = typeof MechLab !== 'undefined' ? MechLab : null;
   let DRV = null;                  // { gb, ctrlL, ctrlR, battery, mass, mu, wheelR }
-  const DRIVE_DEFAULT = { motor: 'krakenX60', perSide: 2, ratio: 7.31, wheelIn: 4, mass: 60, mu: 1.1, efficiency: 0.97,
-                          statorLimit: 80, supplyLimit: 60 };
-  const BATT_DEFAULT = { openV: 12.6, resistance: 0.02 };
+  const DRIVE_DEFAULT = { motor: 'krakenX60', perSide: 2, ratio: 4.71, wheelIn: 4, mass: 60, mu: 1.1, efficiency: 0.97,
+                          statorLimit: 55, supplyLimit: 55 };      // 照 Constants.java:L3 齒比 4.71、驅動限流 55 A
+  const BATT_DEFAULT = { openV: 12.6, resistance: 0.015 };         // 比賽用電池 + 導線約 15 mΩ
   function configure(body) {
     body = body || {};
     const len = +body.length || 0.86, wid = +body.width || 0.86;
@@ -196,6 +196,88 @@ const PHYS = (() => {
       S.vL = v - w * TRACK * SCRUB / 2; S.vR = v + w * TRACK * SCRUB / 2;
     }
     S.v = v; S.w = w;
+    return S;
+  }
+
+  // ---------- Swerve(全向)底盤:照 DrivetrainCmd —— 左搖桿平移(場地座標)、右搖桿旋轉 ----------
+  //  遊戲手感優先:指令速度 → 用「一階追隨 + 馬達/抓地力上限」加速,不會瞬間滿電流;
+  //  電流照真機(4 顆 Kraken、定子/供電各 55 A)從電池抽,所以電壓只會像真車一樣輕輕掉一下。
+  const SW_VMAX = 4.0;             // SwerveConstants.kMaxSpeed
+  const SW_R = 0.39;               // 輪到中心的距離(kTrackWidth/kWheelBase 算出來)
+  const SW_WMAX = 8.0;             // 旋轉角速度上限(rad/s,受輪速限制)
+  const SW_TAU = 0.10;             // 追隨指令的時間常數(s):越小越靈敏
+  S.vx = 0; S.vy = 0;
+  // cx, cy:場地座標(螢幕:x 右、y 下)的目標速度(-1~1);cw:旋轉(-1~1,逆時針為正)
+  function driveSwerve(cx, cy, cw, dt) {
+    const slow = onBump(pose.x, pose.y) ? BUMP_SLOW : 1;
+    let tx = cx * SW_VMAX * slow, ty = cy * SW_VMAX * slow;
+    const tm = Math.hypot(tx, ty); if (tm > SW_VMAX) { tx *= SW_VMAX / tm; ty *= SW_VMAX / tm; }
+    const tw = cw * SW_WMAX;
+    if (DRV && DRV.battery.brownout) { tx = ty = 0; }
+    const N = Math.max(1, Math.ceil(dt / 0.004)), h = dt / N;
+    let Itot = 0, Isup = 0, lim = '';
+    for (let i = 0; i < N; i++) {
+      const sp = Math.hypot(S.vx, S.vy);
+      let ax = (tx - S.vx) / SW_TAU, ay = (ty - S.vy) / SW_TAU;
+      let aw = (tw - S.w) / SW_TAU;
+      let am = Math.hypot(ax, ay);
+      // 上限:抓地力 + (有 DRV 時)馬達在目前轉速還推得動多少
+      let aCap = (DRV ? DRV.mu : 1.1) * G, Im = 0, Vm = 0;
+      if (DRV) {
+        const { gb, battery } = DRV, mot = gb.motor, n = 2 * gb.count;
+        const wm = gb.motorSpeed(sp / DRV.wheelR), back = wm / mot.kV;
+        const stator = DRV.d.statorLimit > 0 ? DRV.d.statorLimit : mot.stallCurrent;
+        Im = Math.max(0, Math.min(stator, (battery.vBus - Math.abs(back)) / mot.R));
+        const F = n * gb.outputTorque(mot.kT * Im, wm) / DRV.wheelR;
+        aCap = Math.min(aCap, F / DRV.mass);
+        Vm = Math.abs(back) + Im * mot.R;
+      }
+      const need = am + Math.abs(aw) * SW_R * 0.8;      // 轉動也要吃力
+      const k = need > aCap ? aCap / need : 1;
+      if (k < 1) lim = DRV ? 'stator' : '';
+      ax *= k; ay *= k; aw *= k;
+      S.vx += ax * h; S.vy += ay * h; S.w += aw * h;
+      // 放開搖桿時的滾動摩擦,讓車確實停下來
+      if (!tx && !ty && Math.hypot(S.vx, S.vy) < 0.03) { S.vx = 0; S.vy = 0; }
+      if (DRV) {
+        const use = Math.min(1, need * k / Math.max(aCap, 1e-6));
+        const I = Im * use + 1.5;                         // + 內部損耗
+        const sup = Math.min(DRV.d.supplyLimit > 0 ? DRV.d.supplyLimit : 999, I * Math.min(1, (Vm * use + 0.5) / DRV.battery.vBus));
+        DRV.battery.update(sup * 2 * DRV.gb.count, h);
+        Itot += I * 2 * DRV.gb.count / N; Isup += sup * 2 * DRV.gb.count / N;
+      }
+    }
+    if (DRV) {
+      S.vBus = DRV.battery.vBus; S.brownout = DRV.battery.brownout;
+      S.current = Itot; S.supply = Isup; S.limited = lim; S.slip = false;
+      S.minV = Math.min(S.minV ?? 99, S.vBus);
+    }
+    pose.th += S.w * dt;
+    pose.x += S.vx * dt;
+    pose.y += S.vy * dt;
+
+    // 碰撞:牆 + 障礙物;撞到就把朝牆的那個速度分量吃掉
+    S.blocked = false;
+    const hitN = [];
+    const ac = Math.abs(Math.cos(pose.th)), as = Math.abs(Math.sin(pose.th));
+    const extX = HX * ac + HY * as, extY = HX * as + HY * ac;
+    if (pose.x < extX) { pose.x = extX; hitN.push([1, 0]); }
+    if (pose.x > FIELD_W - extX) { pose.x = FIELD_W - extX; hitN.push([-1, 0]); }
+    if (pose.y < extY) { pose.y = extY; hitN.push([0, 1]); }
+    if (pose.y > FIELD_H - extY) { pose.y = FIELD_H - extY; hitN.push([0, -1]); }
+    for (const o of OBST) {
+      const c = obbVsBox(pose.x, pose.y, pose.th, o);
+      if (c) { pose.x += c.nx * c.depth; pose.y += c.ny * c.depth; hitN.push([c.nx, c.ny]); }
+    }
+    for (const [nx, ny] of hitN) {
+      S.blocked = true;
+      const dn = S.vx * nx + S.vy * ny;
+      if (dn < 0) { S.vx -= dn * nx; S.vy -= dn * ny; }
+    }
+    // 給畫面(輪子轉動、輪胎痕)用的量
+    const sp = Math.hypot(S.vx, S.vy);
+    const fwd = S.vx * Math.cos(pose.th) - S.vy * Math.sin(pose.th);   // 車頭方向分量
+    S.v = fwd; S.vL = sp * Math.sign(fwd || 1) - S.w * 0.2; S.vR = sp * Math.sign(fwd || 1) + S.w * 0.2;
     return S;
   }
 
@@ -408,7 +490,7 @@ const PHYS = (() => {
   }
 
   configure(null);
-  return { drive, balls, flights, launch, predict, rangeAt, state: S, onBump, OBST, BUMPS, configure, driveSpecs,
+  return { drive, driveSwerve, balls, flights, launch, predict, rangeAt, state: S, onBump, OBST, BUMPS, configure, driveSpecs,
            get dims() { return { hx: HX, hy: HY, track: TRACK, intake: INTAKE_HALF }; },
            get battery() { return DRV && DRV.battery; } };
 })();
